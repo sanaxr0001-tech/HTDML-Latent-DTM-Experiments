@@ -51,6 +51,7 @@ conftest.py installs the vendored isolation; the module self-bootstraps on impor
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import tempfile
@@ -69,6 +70,36 @@ import htdml  # noqa: E402,F401  (triggers bootstrap_paths)
 
 from harness import probe_primitives as pp  # noqa: E402
 from harness import selfadjoint_cert as sc  # noqa: E402
+
+# Stage-C compat free-energy checks (d-i, d-ii). The d-i marginalization-EXACTNESS gate (<1e-10) needs
+# float64, so the compat numerics run inside a SCOPED `_x64()` toggle (below). We do NOT enable x64 for
+# the whole module: the Task-4 DTM.load round-trip saved its checkpoint in float32, and a global x64
+# flip makes the fresh `like`-step float64 → an eqx deserialise dtype-mismatch. So the toggle is local.
+
+
+@contextlib.contextmanager
+def _x64():
+    """Scoped JAX float64 — REQUIRED for the d-i 1e-10 marginalization gate (float32 cannot resolve it).
+    Restores the prior flag on exit so the rest of the module (and the float32 DTM.load round-trip) is
+    unaffected. The real-DTM constructor emits a benign vendored f64→f32 scatter FutureWarning under x64
+    (thrml step.py:165 `_set_coupling_weights`) — not from our code; pytest does not escalate it."""
+    import jax
+
+    prev = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    try:
+        yield
+    finally:
+        jax.config.update("jax_enable_x64", prev)
+
+
+# Compat-check tolerances (JUSTIFIED in task-5-report.md):
+#   d-i: the analytic log-2cosh lower-marginalization is ALGEBRAICALLY exact for the strict-bipartite
+#        real structure; residual is pure float64 round-off (≈ 1e-15) → a tight 1e-10 SAFETY-NET gate.
+DI_MARGINALIZATION_TOL = 1e-10        # the load-bearing exactness gate (BLOCKER if missed)
+DII_BOUND_TOL = 1e-9                  # F_MF ≥ F_exact − tol (numerical slack on the variational bound)
+DII_FD_GRAD_TOL = 1e-6                # autodiff vs central-FD on ∂F_MF/∂(latent clamp)
+DII_GRAD_DISTINCT_MIN = 1e-3          # min ‖∂F_compat − ∂E_clamped‖∞ (MF/marginalization did NOT collapse)
 
 
 # ====================================================================== the REAL fixture model (4_4)
@@ -653,3 +684,143 @@ def test_e_checkpoint_rollback_real_dtm_load_round_trip():
     print(f"\n[ROLLBACK real DTM.load] weights-hash {hash_ckpt} restored bitwise; opt counts "
           f"{counts_ckpt} restored; dtm key {key_ckpt} reconstructed; autocorrelations DROPPED by "
           f"DTM.load (=={{}}) then OUT-OF-BAND restored (Task-8 driver pattern)  PASS")
+
+
+# ====================================================================== (d) Stage-C compat free energy
+# The compat-CORE (`src/htdml/compatibility.py`) validated against brute-force enumeration on the REAL
+# 4_4 model. ALL compat numerics run inside `with _x64():` (float64) — the d-i exactness gate (<1e-10)
+# cannot be resolved in float32. The compat maps are built from the POSITIVE-phase partition
+# (program_positive): FREE = {upper_hidden, lower_hidden}, CLAMPED = {image_output, label_output, b_t}.
+
+def _rng_pm1(rng, n):
+    return (rng.integers(0, 2, size=n) * 2 - 1).astype(np.float64)
+
+
+def test_d_i_lower_marginalization_is_exact_on_real_model():
+    """(d-i) THE SAFETY NET. The analytic log-2cosh marginalization of lower_hidden — `F_low(u)` — must
+    EQUAL the brute-force 2^{N_lower} enumeration `−log Σ_lower exp(−β E(u, lower, clamps))` to < 1e-10
+    on the REAL 4_4 model, at multiple FIXED upper_hidden configs u and clamps. This is the gate that
+    proves the marginalization formula is correct for the real structure — the WHOLE Stage-C approach
+    rests on it. A miss is a BLOCKER (the formula is wrong); do NOT loosen the tolerance."""
+    import jax.numpy as jnp
+
+    import htdml.compatibility as C
+
+    _dtm, step = _build_fixture_step()
+    beta = float(step.training_spec.beta)
+    with _x64():
+        maps = C.build_compat_maps(step)
+        jm = C._jnp_maps(maps)
+        # structural sanity: the positive partition has the expected layer sizes.
+        assert maps["n_upper"] == EXPECTED_BLOCK_LENS[0], "upper_hidden (MF layer) size mismatch"
+        assert maps["n_lower"] == EXPECTED_BLOCK_LENS[1], "lower_hidden (marginalized layer) size mismatch"
+        assert maps["n_img"] == EXPECTED_BLOCK_LENS[2] and maps["n_lab"] == EXPECTED_BLOCK_LENS[3]
+        assert maps["n_clamp"] == maps["n_img"] + maps["n_lab"] + maps["n_bt"]
+        assert maps["n_bt"] == EXPECTED_N_CLAMP
+
+        rng = np.random.default_rng(0)
+        residuals = []
+        for _ in range(8):
+            u = _rng_pm1(rng, maps["n_upper"])
+            clamp = _rng_pm1(rng, maps["n_clamp"])
+            f_analytic = float(C.F_low(jnp.asarray(u), jnp.asarray(clamp), jm, beta))
+            f_brute = C.F_low_bruteforce(u, clamp, maps, beta)       # EXACT 2^{N_lower} enumeration
+            residuals.append(abs(f_analytic - f_brute))
+        max_res = float(np.max(residuals))
+
+    assert max_res < DI_MARGINALIZATION_TOL, (
+        f"BLOCKER: lower-marginalization residual {max_res:.3e} ≥ {DI_MARGINALIZATION_TOL:.0e} — the "
+        "log-2cosh marginalization formula is WRONG for the real structure; Stage-C is unsafe. Do NOT "
+        "loosen the tolerance.")
+    print(f"\n[COMPAT d-i] lower_hidden log-2cosh marginalization EXACT on real 4_4: max |F_low_analytic "
+          f"− F_low_brute| = {max_res:.3e} < {DI_MARGINALIZATION_TOL:.0e} over 8 (u, clamp) configs "
+          f"(N_lower={maps['n_lower']}, brute = −log Σ_{{2^{maps['n_lower']}}} exp(−βE))  PASS")
+
+
+def test_d_ii_mf_bound_gradient_and_determinism_on_real_model():
+    """(d-ii) MF surrogate boundness + gradient correctness + determinism on the REAL 4_4 model:
+      * F_MF ≥ F_exact over the FULL 2^N free space (variational UPPER bound); record the NON-ZERO gap
+        F_MF − F_exact (the honesty metric). F_exact = −log Σ_{upper,lower} exp(−βE).
+      * FD-gradient agreement: autodiff ∂F_MF/∂(image_output latent clamp) matches central finite
+        differences (gradients flow through the unrolled MF).
+      * dF_compat/dlatent ≠ dE_clamped/dlatent: the compat gradient DIFFERS from the raw clamped-energy
+        gradient (they differ by the entropy/log-cosh term; equality ⇒ the MF/marginalization collapsed).
+      * Deterministic MF: same input → bitwise-identical F_MF (draws NO PRNG key)."""
+    import jax
+    import jax.numpy as jnp
+
+    import htdml.compatibility as C
+
+    _dtm, step = _build_fixture_step()
+    beta = float(step.training_spec.beta)
+    rng = np.random.default_rng(7)
+
+    with _x64():
+        maps = C.build_compat_maps(step)
+        jm = C._jnp_maps(maps)
+        n_img = maps["n_img"]
+
+        # --- (1) variational bound F_MF ≥ F_exact, over several clamps; report the gap. --------------
+        gaps = []
+        for _ in range(4):
+            clamp = _rng_pm1(rng, maps["n_clamp"])
+            f_mf = float(C.F_MF(jnp.asarray(clamp), jm, beta))
+            f_ex = C.F_exact_full(clamp, maps, beta)                  # EXACT 2^{N_upper+N_lower}
+            gaps.append(f_mf - f_ex)
+            assert f_mf >= f_ex - DII_BOUND_TOL, (
+                f"F_MF ({f_mf:.6f}) < F_exact ({f_ex:.6f}) − tol — the variational upper bound is "
+                "VIOLATED; the mean-field surrogate is mis-derived")
+        gap_min, gap_med, gap_max = float(np.min(gaps)), float(np.median(gaps)), float(np.max(gaps))
+        assert gap_min > 0.0, (
+            f"the F_MF−F_exact gap collapsed to 0 (min {gap_min:.2e}) — the surrogate equals the exact "
+            "free energy, which the mean-field heuristic should NOT on a coupled model (check the MF)")
+
+        # --- (2) FD-gradient agreement on the image_output (latent) clamp columns. -------------------
+        clamp_base = _rng_pm1(rng, maps["n_clamp"])
+        tail = jnp.asarray(clamp_base[n_img:])
+
+        def fmf_of_latent(latent):
+            return C.F_MF(jnp.concatenate([latent, tail]), jm, beta)
+
+        latent0 = jnp.asarray(clamp_base[:n_img])
+        g_ad = np.asarray(jax.grad(fmf_of_latent)(latent0))
+        eps = 1e-5
+        g_fd = np.empty(n_img)
+        for i in range(n_img):
+            lp = np.array(clamp_base[:n_img]); lp[i] += eps
+            lm = np.array(clamp_base[:n_img]); lm[i] -= eps
+            g_fd[i] = (float(fmf_of_latent(jnp.asarray(lp))) - float(fmf_of_latent(jnp.asarray(lm)))) / (2 * eps)
+        fd_err = float(np.max(np.abs(g_ad - g_fd)))
+        assert fd_err < DII_FD_GRAD_TOL, (
+            f"autodiff ∂F_MF/∂latent disagrees with finite differences (max abs {fd_err:.2e} ≥ "
+            f"{DII_FD_GRAD_TOL:.0e}) — gradients do NOT flow correctly through the unrolled MF")
+
+        # --- (3) gradient distinctness: F_compat grad ≠ raw clamped-energy grad. ----------------------
+        def e_clamped_of_latent(latent):       # raw clamp energy (u=0, no MF / no marginalization)
+            return C.clamp_energy(jnp.zeros(maps["n_upper"]), jnp.concatenate([latent, tail]), jm, beta)
+
+        g_eclamp = np.asarray(jax.grad(e_clamped_of_latent)(latent0))
+        distinct = float(np.max(np.abs(g_ad - g_eclamp)))
+        assert distinct > DII_GRAD_DISTINCT_MIN, (
+            f"dF_compat/dlatent == dE_clamped/dlatent (max abs diff {distinct:.2e} ≤ "
+            f"{DII_GRAD_DISTINCT_MIN:.0e}) — the MF/marginalization collapsed to the raw clamped energy "
+            "(the entropy/log-cosh term is inert; this is a bug)")
+
+        # --- (4) determinism: same input → bitwise-identical F_MF (no PRNG key). ----------------------
+        clamp_det = _rng_pm1(rng, maps["n_clamp"])
+        f_a = float(C.F_MF(jnp.asarray(clamp_det), jm, beta))
+        f_b = float(C.F_MF(jnp.asarray(clamp_det), jm, beta))
+        assert f_a == f_b, f"F_MF non-deterministic ({f_a!r} != {f_b!r}) — the compat must draw NO PRNG key"
+
+        # --- (5) λ=0 ≡ control + multi-step L_compat sanity. ------------------------------------------
+        clamp_steps = jnp.asarray(np.stack([_rng_pm1(rng, maps["n_clamp"]) for _ in range(4)]))
+        l_compat = float(C.L_compat(clamp_steps, [maps], beta))
+        v0, fin0 = C.compat_loss(0.0, clamp_steps, [maps], beta)
+        v_half, fin_h = C.compat_loss(0.5, clamp_steps, [maps], beta)
+        assert float(v0) == 0.0 and bool(fin0), "λ=0 compat term must be exactly 0.0 (the control)"
+        assert bool(fin_h) and np.isclose(float(v_half), 0.5 * l_compat), "λ·L_compat must scale linearly"
+
+    print(f"\n[COMPAT d-ii] real 4_4: F_MF ≥ F_exact (gap min/med/max = {gap_min:.4f}/{gap_med:.4f}/"
+          f"{gap_max:.4f} > 0, the honesty metric); FD-grad max|AD−FD|={fd_err:.2e} < {DII_FD_GRAD_TOL:.0e}; "
+          f"∂F_compat≠∂E_clamped (Δ={distinct:.4f}); F_MF deterministic (bitwise); "
+          f"L_compat(4 steps)={l_compat:.4f}, λ=0 ≡ control (0.0)  PASS")

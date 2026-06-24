@@ -44,7 +44,8 @@ class InceptionV3(nn.Module):
     def setup(self):
         if self.pretrained:
             # htdml-task10-patch: pickle.load from repo-local cache
-            _pickle_path = r"/home/user/projects/htdml-latent-dtm/cache/inception_v3_weights_fid.pickle"
+            from pathlib import Path as _Path
+            _pickle_path = str(_Path(__file__).resolve().parents[4] / "cache" / "inception_v3_weights_fid.pickle")
             self.params_dict = pickle.load(open(_pickle_path, "rb"))
             self.num_classes_ = 1000
         else:

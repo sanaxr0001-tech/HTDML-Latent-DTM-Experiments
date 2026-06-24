@@ -213,7 +213,7 @@ def fetch_inception_pickle(expected_sha: str | None = None) -> str:
 # Step 3 — Patch the vendored inception.py (P1)
 # ---------------------------------------------------------------------------
 
-_PATCH_MARKER = "# htdml-task10-patch: pickle.load from repo-local cache"
+_PATCH_MARKER = "htdml-task10-patch: pickle.load from repo-local cache"
 
 
 def patch_inception_py() -> bool:
@@ -250,10 +250,14 @@ def patch_inception_py() -> bool:
             "Manual inspection of inception.py required."
         )
 
-    pickle_abs = str(INCEPTION_PICKLE_PATH)
+    # Write a __file__-relative resolve (NOT an absolute path) so the patched
+    # vendored copy survives being copied to a different checkout (e.g. the H200
+    # for the deferred Stage-C run). inception.py lives at
+    # vendor/dtm-replication/thrmlDenoising/fid/inception.py → parents[4] == repo root.
     NEW_LINES = (
         f"            # {_PATCH_MARKER}\n"
-        f'            _pickle_path = r"{pickle_abs}"\n'
+        f"            from pathlib import Path as _Path\n"
+        f'            _pickle_path = str(_Path(__file__).resolve().parents[4] / "cache" / "inception_v3_weights_fid.pickle")\n'
         f'            self.params_dict = pickle.load(open(_pickle_path, "rb"))'
     )
 

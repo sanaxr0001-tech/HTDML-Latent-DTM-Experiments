@@ -179,6 +179,7 @@ def estimate_moments(
     schedule: SamplingSchedule,
     init_state: list[Array],
     clamped_data: list[Array],
+    order_key: Key[Array, ""] | None = None,
 ):
     """
     Estimates the first and second moments of an Ising model Boltzmann distribution via sampling.
@@ -206,7 +207,7 @@ def estimate_moments(
     observer = MomentAccumulatorObserver((first_moments, second_moment_edges), _spin_transform)
     init_mem = observer.init()
 
-    moments, _ = sample_with_observation(key, program, schedule, init_state, clamped_data, init_mem, observer)
+    moments, _ = sample_with_observation(key, program, schedule, init_state, clamped_data, init_mem, observer, order_key=order_key)
 
     node_sums, edge_sums = moments
     node_moments = node_sums / schedule.n_samples

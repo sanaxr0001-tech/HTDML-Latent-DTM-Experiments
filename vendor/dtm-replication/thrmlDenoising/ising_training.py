@@ -56,7 +56,9 @@ def symmetric_kl_grad(
         Tuple of (weight_gradients, bias_gradients), each as JAX arrays matching model shapes.
     """
 
-    key_pos, key_neg = jax.random.split(key, 2)
+    # EXP4 v2: shared order-coin for TRAINING (key_order_* are closure constants in the vmaps below,
+    # hence non-batched across chains => lax.cond stays true control flow => ~1 sweep). Fresh per step.
+    key_pos, key_neg, key_order_pos, key_order_neg = jax.random.split(key, 4)
 
     batch_size_positive = free_data_positive[0].shape[0]
     batch_size_negative = free_data_negative[0].shape[0]
@@ -83,6 +85,7 @@ def symmetric_kl_grad(
             training_spec.schedule_positive,
             i,
             c,
+            order_key=key_order_pos,
         )
     )(keys_pos, free_data_positive, clamped_data_positive)
 
@@ -103,6 +106,7 @@ def symmetric_kl_grad(
             training_spec.schedule_negative,
             i,
             c,
+            order_key=key_order_neg,
         )
     )(keys_neg, free_data_negative, clamped_data_negative)
 

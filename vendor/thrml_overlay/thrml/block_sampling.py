@@ -28,6 +28,11 @@ from .observers import AbstractObserver, ObserveCarry, StateObserver
 SuperBlock: TypeAlias = tuple[Block, ...] | Block
 _SD: TypeAlias = Mapping[Type[AbstractNode], PyTree[jax.ShapeDtypeStruct]]
 
+# HTDML patch-live MARKER (mirror exp15 is_patch_live). The reversible forward/reverse symmetrized
+# block-Gibbs scan ( K = 1/2(P_AB + P_BA) ) + the v2 shared/per-chain order-coin toggle live in
+# `sample_blocks` below. A detector asserts this constant is present + the v2 toggle is in the source.
+REVERSIBLE_SCAN_MARKER = "HTDML-REVERSIBLE-SCAN-v2:fwd-rev-symmetrized-block-gibbs;K=half(P_AB+P_BA);order-coin-toggle"
+
 
 class BlockGibbsSpec(BlockSpec):
     """
@@ -341,6 +346,7 @@ def sample_blocks(
     clamp_state: list[_State],
     program: BlockSamplingProgram,
     sampler_state: list[_SamplerState],
+    order_subkey: Key[Array, ""] | None = None,
 ) -> tuple[list[_State], list[_SamplerState]]:
     """Perform one iteration of sampling, visiting every block.
 
@@ -363,17 +369,55 @@ def sample_blocks(
     verify_block_state(program.gibbs_spec.free_blocks, state_free, sds, -1)
     verify_block_state(program.gibbs_spec.clamped_blocks, clamp_state, sds, -1)
 
-    keys = jax.random.split(key, (len(program.gibbs_spec.free_blocks),))
-    for sampling_group in program.gibbs_spec.sampling_order:
-        global_state = block_state_to_global(state_free + clamp_state, program.gibbs_spec)
-        state_updates = {}
-        for i in sampling_group:
-            state_updates[i], sampler_state[i] = sample_single_block(
-                keys[i], state_free, clamp_state, program, i, sampler_state[i], global_state
-            )
+    # HTDML-REVERSIBLE-SCAN PATCH v2 (was: a single deterministic for-loop over sampling_order, i.e.
+    # alternating/deterministic-scan = non-reversible = A2-excluded/F3-regime).
+    # Forward/reverse symmetrized block-Gibbs scan; A2-satisfied. A per-sweep fair coin selects the
+    # FULL superblock visitation order forward vs exactly reversed:
+    #   coin=0 -> P_fwd = P_{g_{M-1}} ... P_{g_0};  coin=1 -> P_rev = P_{g_0} ... P_{g_{M-1}}.
+    # Each single-block Gibbs update P_i resamples from pi_theta(x_i | x_{-i}) => P_i is pi-reversible
+    # (self-adjoint in L2(pi)). Hence (P_fwd)* = P_rev, and M = 1/2(P_fwd + P_rev) = 1/2(P_fwd + P_fwd*)
+    # is self-adjoint => pi-reversible. Only the application ORDER is randomized (per-block keys[i] fixed
+    # per sweep), so each chain's MARGINAL kernel is exactly 1/2(P_fwd+P_rev). Single-superblock => no-op.
+    # The DTM negative phase has 4 superblocks (upper_hidden, lower_hidden, image_output, label_output).
+    # v2 ORDER-COIN TOGGLE (identical per-chain marginal kernel either way; differs ONLY in cross-chain
+    # coin correlation, which the single-chain self-adjointness gate cannot and need not see):
+    #   * order_subkey is None -> PER-CHAIN coin (diagnostics): coin from THIS chain's key, so under
+    #     vmap-over-chains the predicate is batched => lax.cond computes BOTH sweeps (~2x). Keeps the
+    #     frozen-theta diagnostic across-chain SEM (P5) exactly independent.
+    #   * order_subkey given   -> SHARED coin (training): coin from a key shared across chains (non-
+    #     batched under vmap) => lax.cond stays true control flow => ONE sweep (~1x, the speedup).
+    #     Per-block Gibbs NOISE stays per-chain (from `key`); only the visitation order is shared.
+    # Justification + numerical self-adjointness gate:
+    #   <thermo-wiki>/experiments/internal-exp/patches/reversible-scan.md
+    if order_subkey is None:
+        order_key, block_key = jax.random.split(key)
+        coin = jax.random.bernoulli(order_key)
+    else:
+        block_key = key
+        coin = jax.random.bernoulli(order_subkey)
+    keys = jax.random.split(block_key, (len(program.gibbs_spec.free_blocks),))
+    fwd_order = list(program.gibbs_spec.sampling_order)
+    rev_order = list(reversed(fwd_order))
 
-        for i, state in state_updates.items():
-            state_free[i] = state
+    def _sweep(order, state_free, sampler_state):
+        for sampling_group in order:
+            global_state = block_state_to_global(state_free + clamp_state, program.gibbs_spec)
+            state_updates = {}
+            for i in sampling_group:
+                state_updates[i], sampler_state[i] = sample_single_block(
+                    keys[i], state_free, clamp_state, program, i, sampler_state[i], global_state
+                )
+
+            for i, state in state_updates.items():
+                state_free[i] = state
+        return state_free, sampler_state
+
+    state_free, sampler_state = jax.lax.cond(
+        coin,
+        lambda sf, ss: _sweep(rev_order, sf, ss),
+        lambda sf, ss: _sweep(fwd_order, sf, ss),
+        state_free, sampler_state,
+    )
     return state_free, sampler_state
 
 
@@ -384,20 +428,34 @@ def _run_blocks(
     state_clamp: list[_State],
     n_iters: int,
     sampler_states: list[_SamplerState],
+    order_key: Key[Array, ""] | None = None,
 ) -> tuple[list[PyTree[Shaped[Array, "n_iters nodes ?*state"]]], list[_SamplerState]]:
     """
     Perform `n_iters` steps of block sampling.
+
+    EXP4: `order_key=None` -> each sweep uses the PER-CHAIN order coin (sample_blocks draws it). If
+    given, it is split into one shared order-subkey per sweep => SHARED (across-chain) coin (training).
     """
     if n_iters == 0:
         return init_chain_state, sampler_states
 
-    def body_fn(states, _key):
-        state_free, sampler_state = states
-        return sample_blocks(_key, state_free, state_clamp, program, sampler_state), None
-
     keys = jax.random.split(key, n_iters)
 
-    return jax.lax.scan(body_fn, (init_chain_state, sampler_states), keys)[0]
+    if order_key is None:
+        def body_fn(states, _key):
+            state_free, sampler_state = states
+            return sample_blocks(_key, state_free, state_clamp, program, sampler_state), None
+
+        return jax.lax.scan(body_fn, (init_chain_state, sampler_states), keys)[0]
+
+    order_subkeys = jax.random.split(order_key, n_iters)
+
+    def body_fn(states, scan_in):
+        _key, _ok = scan_in
+        state_free, sampler_state = states
+        return sample_blocks(_key, state_free, state_clamp, program, sampler_state, order_subkey=_ok), None
+
+    return jax.lax.scan(body_fn, (init_chain_state, sampler_states), (keys, order_subkeys))[0]
 
 
 @dataclasses.dataclass
@@ -428,6 +486,7 @@ def sample_with_observation(
     state_clamp: list[_State],
     observation_carry_init: ObserveCarry,
     f_observe: AbstractObserver,
+    order_key: Key[Array, ""] | None = None,
 ) -> tuple[ObserveCarry, list[PyTree[Shaped[Array, "n_samples nodes ?*state"]]]]:
     """Run the full chain and call an Observer after every recorded sample.
 
@@ -452,6 +511,10 @@ def sample_with_observation(
         program.samplers,
         is_leaf=lambda a: isinstance(a, AbstractConditionalSampler),
     )
+    if order_key is not None:
+        order_key, ok_warmup = jax.random.split(order_key, 2)
+    else:
+        ok_warmup = None
     key, subkey = jax.random.split(key, 2)
     warmup_state, warmup_sampler_states = _run_blocks(
         subkey,
@@ -460,6 +523,7 @@ def sample_with_observation(
         state_clamp,
         schedule.n_warmup,
         sampler_states,
+        order_key=ok_warmup,
     )
     mem, warmup_observation = f_observe(program, warmup_state, state_clamp, observation_carry_init, jnp.array(0))
 
@@ -469,10 +533,19 @@ def sample_with_observation(
 
     # collect samples
 
+    if order_key is not None:
+        ok_samples = jax.random.split(order_key, schedule.n_samples - 1)
+    else:
+        ok_samples = None
+
     def body_fn(carry, input):
         (prev_state, prev_sampler_state), _mem = carry
 
-        _key, i = input
+        if order_key is not None:
+            _key, i, _ok = input
+        else:
+            _key, i = input
+            _ok = None
 
         new_state, new_sampler_state = _run_blocks(
             _key,
@@ -481,6 +554,7 @@ def sample_with_observation(
             state_clamp,
             schedule.steps_per_sample,
             prev_sampler_state,
+            order_key=_ok,
         )
         _mem, observe_out = f_observe(program, new_state, state_clamp, _mem, i)
         new_carry = ((new_state, new_sampler_state), _mem)
@@ -489,7 +563,10 @@ def sample_with_observation(
     keys = jax.random.split(key, schedule.n_samples - 1)
     outer_iters = jnp.arange(1, schedule.n_samples)
 
-    inputs = (keys, outer_iters)
+    if order_key is not None:
+        inputs = (keys, outer_iters, ok_samples)
+    else:
+        inputs = (keys, outer_iters)
 
     (_, mem_out), observed_results = jax.lax.scan(body_fn, ((warmup_state, warmup_sampler_states), mem), inputs)
 

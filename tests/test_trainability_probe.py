@@ -315,10 +315,77 @@ def test_calibration_returns_tau_TO_calstable(fixture_dtm, probe):
     Q-CALIBRATION-FAIL gate."""
     with jax.default_device(_CPU):
         calib = probe.calibrate(fixture_dtm, layer=0, batch=_batch(fixture_dtm),
-                                n_chains=8, L0=24, warm=8, n_rungs=2,
+                                n_chains=8, L0=24, warm=8, n_rungs=3,
                                 diag_key=_DIAGKEY, key=jr.PRNGKey(3))
     assert "tau_hat" in calib and "T_O" in calib and "cal_stable" in calib
     assert isinstance(calib["cal_stable"], bool)
     if calib["tau_hat"] is not None:
         assert calib["tau_hat"] >= 0.5
     assert "curve" in calib and len(calib["curve"]) >= 1
+
+
+# ============================================================ TP-calib: Cal-STABLE classifier (exp16-faithful)
+def test_cal_stable_classifier_thresholds_are_exp16_constants():
+    """The Cal-STABLE thresholds are the VERBATIM exp15/exp16 constants (NOT laxer)."""
+    assert pp.SOKAL_C == 5.0
+    assert pp.TAU_TOL == 0.15
+    assert pp.STAB_TOL == 0.15
+
+
+def test_cal_stable_requires_two_consecutive_stable_rungs():
+    """exp16's `consec_stable >= 2`: a SINGLE stable rung (all three axes) is NOT Cal-STABLE; two
+    CONSECUTIVE stable rungs ARE."""
+    base = dict(tau_max=10.0, T_O=100.0, self_consistent=True, dS_l1=0.01)
+    rung0 = dict(base, L=1000, dS_l1=None)               # rung 0 has no prev → not a step
+    rung1 = dict(base, L=2000)                            # STABLE vs rung0 (all axes tiny)
+    rung2_drift = dict(tau_max=10.0, T_O=140.0, self_consistent=True, dS_l1=0.01, L=4000)  # dT=0.29 → NOT stable
+    cs1, _ann, _fa = pp.classify_calibration_stable([rung0, rung1, rung2_drift])
+    assert cs1 is False, "ONE stable rung must NOT be Cal-STABLE (needs 2 consecutive)"
+
+    rung2_stable = dict(base, L=4000)                    # STABLE vs rung1 → 2 consecutive
+    cs2, ann2, _fa2 = pp.classify_calibration_stable([rung0, rung1, rung2_stable])
+    assert cs2 is True, "two CONSECUTIVE stable rungs must be Cal-STABLE"
+    assert [r.get("step_class") for r in ann2[1:]] == ["STABLE", "STABLE"]
+
+
+def test_cal_stable_can_fail_on_drifting_TO_with_stable_Sa_shape():
+    """THE failure mode the laxer (dS_l1-only) criterion missed: a chain whose AGGREGATE T_O is still
+    DRIFTING (large dT) but whose L1-normalized S_a *shape* momentarily stabilizes (small dS_l1) on a
+    rung must be reported cal_stable=False — the dT axis must independently veto.  exp16 = UNRESOLVED."""
+    # Every rung: tau stable + self-consistent + tiny dS_l1 (shape frozen) BUT T_O grows ~40%/doubling.
+    curve = [
+        dict(L=1000, tau_max=10.0, T_O=100.0, self_consistent=True, dS_l1=None),
+        dict(L=2000, tau_max=10.2, T_O=140.0, self_consistent=True, dS_l1=0.01),  # dT≈0.286 ≥ 0.15 → NOT stable
+        dict(L=4000, tau_max=10.3, T_O=196.0, self_consistent=True, dS_l1=0.01),  # dT≈0.286 ≥ 0.15 → NOT stable
+    ]
+    cal_stable, annotated, failed_axis = pp.classify_calibration_stable(curve)
+    assert cal_stable is False, (
+        "drifting-T_O chain (large dT) with a momentarily-stable S_a shape MUST be cal_stable=False — "
+        "the dT axis must independently veto (the exact failure the dS_l1-only criterion let pass)")
+    assert "aggregate_T_O" in failed_axis, "the failed axis must name the drifting aggregate T_O"
+    assert all(r.get("step_class") == "NOT-STABLE" for r in annotated[1:])
+
+
+def test_cal_stable_can_fail_on_tau_instability():
+    """The tau_max axis independently vetoes: a chain with stable T_O + S_a shape but a JUMPING τ_max
+    (rel_tau ≥ TAU_TOL) is NOT Cal-STABLE."""
+    curve = [
+        dict(L=1000, tau_max=10.0, T_O=100.0, self_consistent=True, dS_l1=None),
+        dict(L=2000, tau_max=14.0, T_O=101.0, self_consistent=True, dS_l1=0.01),  # rel_tau=0.4 ≥ 0.15
+        dict(L=4000, tau_max=20.0, T_O=101.0, self_consistent=True, dS_l1=0.01),  # rel_tau≈0.43 ≥ 0.15
+    ]
+    cal_stable, _ann, failed_axis = pp.classify_calibration_stable(curve)
+    assert cal_stable is False, "a jumping τ_max (rel_tau ≥ TAU_TOL) must veto Cal-STABLE"
+    assert "tau_hat" in failed_axis
+
+
+def test_cal_stable_vetoed_by_non_self_consistent_rung():
+    """A rung that is NOT self-consistent (L < SOKAL_C·τ_max) can NOT be STABLE even with tiny dT/dS_l1."""
+    curve = [
+        dict(L=1000, tau_max=10.0, T_O=100.0, self_consistent=True, dS_l1=None),
+        dict(L=2000, tau_max=10.0, T_O=101.0, self_consistent=False, dS_l1=0.01),  # not self-consistent
+        dict(L=4000, tau_max=10.0, T_O=101.0, self_consistent=False, dS_l1=0.01),
+    ]
+    cal_stable, _ann, failed_axis = pp.classify_calibration_stable(curve)
+    assert cal_stable is False
+    assert "tau_hat" in failed_axis  # self_consistent is folded into the tau axis (exp16)

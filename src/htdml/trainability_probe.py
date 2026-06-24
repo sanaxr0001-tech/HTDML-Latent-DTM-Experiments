@@ -381,17 +381,23 @@ class TrainabilityProbe:
 
     # ====================================================================== per-layer T_O calibration
     def calibrate(self, model, layer, batch, *, n_chains, L0, warm, n_rungs, diag_key, key=None,
-                  B=None, stride=STRIDE_SWEEPS, sokal_c=5.0, stab_tol=0.05):
-        """Per-layer T_O DOUBLING-STABILITY calibration (exp16 ``run_calibration`` port, single-replica
-        reversible kernel).  Doubles the trajectory length L over ``n_rungs`` rungs; the read is
-        Cal-STABLE once the per-observable S_a profile stops moving (L1 change < ``stab_tol``) AND the
-        rung is self-consistent (L ≥ ``sokal_c``·τ_max).
+                  B=None, stride=STRIDE_SWEEPS, sokal_c=pp.SOKAL_C):
+        """Per-layer T_O DOUBLING-STABILITY calibration (exp16 ``run_calibration`` semantics,
+        single-replica reversible kernel).  Doubles the trajectory length L over ``n_rungs`` rungs and
+        classifies the curve with the FAITHFUL exp15/exp16 Cal-STABLE criterion
+        (``pp.classify_calibration_stable``): a rung is STABLE iff ALL THREE axes hold
+        (``rel_tau < TAU_TOL`` AND self-consistent ``L ≥ SOKAL_C·τ_max``; ``dT < STAB_TOL``;
+        ``dS_l1 < STAB_TOL``), and the calibration is Cal-STABLE iff TWO CONSECUTIVE rungs are STABLE.
+
+        This is STRICTLY the exp16 gate — NOT a laxer single-rung / dS_l1-only test.  A chain whose
+        aggregate T_O is still drifting (large ``dT``) but whose L1-normalized S_a *shape* momentarily
+        stabilizes on a single rung is correctly reported ``cal_stable=False`` (exp16 = UNRESOLVED).
 
         Returns
         -------
         dict
-            ``{tau_hat, T_O, cal_stable, curve}`` — the driver's Q-CALIBRATION-FAIL gate reads
-            ``cal_stable`` (build-notes: the bias is systematic; gates are RELATIVE).
+            ``{tau_hat, T_O, cal_stable, curve, failed_axis}`` — the driver's Q-CALIBRATION-FAIL gate
+            reads ``cal_stable`` (build-notes: the T_O bias is systematic; the gate is binary).
         """
         dtm = _resolve_dtm(model)
         step = dtm.steps[int(layer)]
@@ -408,12 +414,12 @@ class TrainabilityProbe:
         k_data, k_run = jr.split(key)
         _data_pos, data_neg = step._make_training_data(k_data, img[idx:idx + 1], lab[idx:idx + 1])
 
+        # --- build the full doubling curve (no early break — Cal-STABLE needs 2 CONSECUTIVE rungs) ---
         curve = []
         prev_S = None
         L = int(L0)
         w = int(warm)
         tau_star = TO_star = None
-        cal_stable = False
         for d in range(int(n_rungs)):
             rk = jr.fold_in(k_run, d)
             rec = self._negative_trajectory(step, prog_neg, maps15, data_neg,
@@ -425,11 +431,12 @@ class TrainabilityProbe:
             curve.append(dict(L=int(L), warm=int(w), tau_max=float(tau_max), T_O=float(T_O),
                               self_consistent=sc, dS_l1=dS_l1))
             tau_star, TO_star = float(tau_max), float(T_O)
-            # Cal-STABLE: self-consistent rung AND the S_a profile stopped moving across the doubling.
-            if sc and dS_l1 is not None and dS_l1 < stab_tol:
-                cal_stable = True
-                break
             prev_S = S_a
             w = max(w, int(round(5 * tau_max)))
             L *= 2
-        return dict(tau_hat=tau_star, T_O=TO_star, cal_stable=bool(cal_stable), curve=curve)
+
+        # --- classify with the faithful exp16 three-axis / 2-consecutive criterion (frozen thresholds:
+        #     pp.TAU_TOL / pp.STAB_TOL / pp.SOKAL_C — the SAME constants exp16 uses) ---
+        cal_stable, annotated, failed_axis = pp.classify_calibration_stable(curve)
+        return dict(tau_hat=tau_star, T_O=TO_star, cal_stable=bool(cal_stable),
+                    curve=annotated, failed_axis=failed_axis)

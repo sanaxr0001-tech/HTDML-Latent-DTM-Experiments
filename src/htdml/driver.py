@@ -126,6 +126,58 @@ class SeedMetrics:
     traj_all_resolved: bool = True   # PLATEAU-UNRESOLVED flag (L_traj ≥ C·τ̂ on all 4 layers)
 
 
+# ====================================================================== per-epoch + per-reverse-layer record
+@dataclass
+class EpochLayerRecord:
+    """The per-epoch + per-reverse-layer record the plan requires the driver to STORE (one per Stage-C
+    epoch × reverse layer).  Holds every stored scalar:
+
+      reconstruction BCE, FID, the LIVE ACP coefficient (``correlation_penalty`` read POST-``adapt_param``
+      — build-notes §config: ``adapt_param`` utils.py:142-149, re-floored to cp_min each adaptive epoch),
+      gradient norm, r_grad[1], r_grad[50], τ_int,Y, ESS_hat, trace-Q_struct^⊥.
+
+    ``correlation_penalty`` was MISSING from every driver record (the zero-compute battery xfail-marked
+    its store-coverage); it is now a first-class field so the store-coverage is complete.
+    """
+
+    epoch: int
+    layer: int                       # the reverse layer (= diffusion step, 0..3)
+    bce: float                       # reconstruction BCE
+    fid: float                       # FID (on the decoded 28×28)
+    correlation_penalty: float       # the LIVE ACP coefficient (post-adapt_param), the missing field
+    gradient_norm: float
+    r_grad_1: float                  # ρ_Y(1)
+    r_grad_50: float                 # ρ_Y(50) — full-window plateau sanity
+    tau_int_Y: float
+    ESS_hat: float
+    Q_struct_perp: float             # trace-Q_struct^⊥
+
+
+def make_epoch_layer_record(epoch, layer, *, bce, fid, correlation_penalty, probe_layer_dict):
+    """Build an :class:`EpochLayerRecord` from a probe per-layer dict (the Task-8 ``evaluate`` output,
+    consumed in bias_pos order AS-IS) + the BCE/FID/live-ACP scalars the driver tracks.
+
+    ``correlation_penalty`` is the LIVE ACP coefficient for this reverse layer, read POST-``adapt_param``
+    (i.e. ``cp_coeffs[step]`` after the adaptive update in the DTM training loop — DTM.py:354-364)."""
+    pl = probe_layer_dict
+    return EpochLayerRecord(
+        epoch=int(epoch), layer=int(layer), bce=float(bce), fid=float(fid),
+        correlation_penalty=float(correlation_penalty),
+        gradient_norm=float(pl["gradient_norm"]),
+        r_grad_1=float(pl["r_grad[1]"]), r_grad_50=float(pl["r_grad[50]"]),
+        tau_int_Y=float(pl["tau_int_Y"]), ESS_hat=float(pl["ESS_hat"]),
+        Q_struct_perp=float(pl["Q_struct_perp"]),
+    )
+
+
+def live_acp_coefficient(dtm, step_index, cp_coeffs):
+    """Read the LIVE ACP coefficient for a reverse layer = the ``cp_coeffs[step_index]`` AFTER the
+    adaptive update (``adapt_param`` + the cp_min re-floor; DTM.py:354-364).  ``cp_coeffs`` is the live
+    correlation-penalty vector the DTM training loop maintains (one entry per step).  Returned as a
+    plain float for the per-epoch record (the value the plan requires stored post-``adapt_param``)."""
+    return float(np.asarray(cp_coeffs)[int(step_index)])
+
+
 # ====================================================================== scalar helpers (pure)
 def _q_values(layers) -> np.ndarray:
     return np.asarray([float(l["Q_struct_perp"]) for l in layers], dtype=np.float64)
@@ -603,19 +655,94 @@ def rebuild_encoder_optimizer(lr):
     return optax.adam(lr)
 
 
-def joint_update_step(ae_module, ae_params, ae_opt_state, ae_optim, step, clamp_latents_per_step,
-                      label_clamp, bt_clamp, beta, lam, x_batch, *, loss_kwargs=None):
+def assemble_compat_clamp(b0_latent, label_clamp, bt_clamp, n_img):
+    """Assemble the per-step compat clamp matrix per the Task-5 clamp-ordering contract
+    ``[image_output (n_img), label_output (n_lab), b_t (n_bt)]`` (image_output FIRST), with the GRADIENT
+    flowing ONLY through the image_output columns:
+
+      * columns ``[0 : n_img)``        = ``b0_latent`` — the encoded hard latent (gradient-carrying via
+                                          the STE; only b0 carries ∂L_compat/∂latent);
+      * columns ``[n_img : n_img+n_lab)`` = ``stop_gradient(label_clamp)`` (label_output, hard);
+      * columns ``[n_img+n_lab : )``   = ``stop_gradient(bt_clamp)`` (= stop_gradient(forward_noise(b0)),
+                                          hard draw).
+
+    ``b0_latent`` is ``(n_img,)`` (one row, tiled over K_steps) or ``(K_steps, n_img)``; ``label_clamp``/
+    ``bt_clamp`` are the remaining clamp columns (``(n_lab+n_bt,)`` or ``(K_steps, n_lab+n_bt)``).  Returns
+    ``(K_steps, n_clamp)`` with the image_output block carrying the only live gradient.  This MUST be built
+    INSIDE the differentiated loss (so ``∂clamp/∂b0`` is live) — see :func:`joint_update_step`."""
+    b0 = jnp.asarray(b0_latent)
+    tail = jax.lax.stop_gradient(jnp.asarray(label_clamp))
+    bt = jax.lax.stop_gradient(jnp.asarray(bt_clamp))
+    if b0.ndim == 1:
+        b0 = b0[None, :]
+    rest = jnp.concatenate([tail, bt], axis=-1)
+    if rest.ndim == 1:
+        rest = rest[None, :]
+    if rest.shape[0] == 1 and b0.shape[0] > 1:
+        rest = jnp.broadcast_to(rest, (b0.shape[0], rest.shape[-1]))
+    if b0.shape[0] == 1 and rest.shape[0] > 1:
+        b0 = jnp.broadcast_to(b0, (rest.shape[0], b0.shape[-1]))
+    assert b0.shape[-1] == n_img, f"b0 latent width {b0.shape[-1]} != n_img {n_img}"
+    return jnp.concatenate([b0, rest], axis=-1)            # (K_steps, n_clamp), image_output first
+
+
+def compat_steering_loss(ae_params, x_batch, label_clamp, bt_clamp, step_maps, beta, lam,
+                         *, n_img, encode_fn=None):
+    """The λ·L_compat-ONLY steering loss (no reconstruction term), x64-SCOPED, with the encode→clamp
+    wiring INSIDE so the gradient reaches ``ae_params`` through the image_output latent.  Returns
+    ``(value, is_finite)``.  Used by :func:`joint_update_step` (added to reconstruction) AND by the
+    driver steering TEST (in isolation, to verify ∂≠0 at λ>0 / =0 at λ=0).
+
+    ``∂(λ·L_compat)/∂ae_params``:  flows via ``b0 = encode(ae_params, x_batch)`` → image_output clamp
+    columns → L_compat.  NON-ZERO at λ>0 (the compat STEERS the encoder), EXACTLY ZERO at λ=0 (the
+    traced-0.0 multiply zeroes the whole graph — the control).  label_output + b_t are stop_gradient'd
+    HARD draws (they do NOT carry ∂/∂ae_params).  Float64 scoped ONLY here (no global leak).
+
+    ``encode_fn(params, x) -> (b0, logits)`` defaults to the production ``autoencoder.encode`` (196-wide
+    latent, GPU smoke scale); a TEST may inject an ``n_img``-matched differentiable encoder so the
+    steering property is exercised on a small CPU DTM whose image_output block is narrow."""
+    if encode_fn is None:
+        from htdml import autoencoder as AE
+        encode_fn = AE.encode
+
+    with _x64():
+        b0, _logits = encode_fn(ae_params, x_batch)        # (B, n_img) hard latent {−1,+1}, STE-grad
+        # one representative latent row drives the single-input compat clamp (exp16 phase_data_1 pattern):
+        # the compat clamp is a single conditioned input; use the batch-mean latent so the gradient
+        # reaches every encoded example (a faithful single-clamp surrogate; the smoke may select a row).
+        b0_row = jnp.mean(jnp.asarray(b0), axis=0)          # (n_img,) — carries ∂/∂ae_params via the STE
+        clamp = assemble_compat_clamp(b0_row, label_clamp, bt_clamp, n_img)
+        val, is_finite = C.compat_loss(lam, clamp, step_maps, beta)
+    return val, is_finite
+
+
+def joint_update_step(ae_module, ae_params, ae_opt_state, ae_optim, step,
+                      label_clamp=None, bt_clamp=None, beta=1.0, lam=0.0, x_batch=None, *,
+                      loss_kwargs=None, step_maps=None, clamp_latents_per_step=None,
+                      encode_fn=None):
     """ONE Stage-C joint enc/dec update: reconstruction + λ·L_compat through the STE.
 
-    The compat clamp is assembled as [image_output (= b0-derived latent, carries ∂L_compat/∂latent),
-    label_output (stop_gradient), b_t (= stop_gradient(forward_noise(b0)))] — the Task-5 clamp ordering
-    contract.  Control = this SAME function at λ=0 (a TRACED 0.0 multiply of the full L_compat graph;
-    NO python branch on λ).
+    THE LOAD-BEARING FIX (default path, ``clamp_latents_per_step=None``): the compat clamp is assembled
+    INSIDE the differentiated loss as [image_output (= b0 = encode(params, x_batch), carries
+    ∂L_compat/∂ae_params via the STE), label_output (stop_gradient(label_clamp)), b_t (=
+    stop_gradient(bt_clamp) = stop_gradient(forward_noise(b0)))] — the Task-5 clamp ordering contract.
+    The encode→clamp wiring MUST be inside the loss, else ``∂(λ·L_compat)/∂ae_params ≡ 0`` for all λ and
+    Stage C is inert (the joint and control arms would produce IDENTICAL encoder updates).  ``encode_fn``
+    defaults to the production ``autoencoder.encode``; a test may inject an ``n_img``-matched encoder.
 
-    GPU-wired (smoke-deferred).  ``step_maps`` for the compat term are built once per fork via
-    :func:`refreshed_compat_maps_x64` (the refresh-gated, x64-scoped positive-phase maps) and passed in
-    as ``clamp_latents_per_step``'s companion; here we keep the signature minimal — the smoke wires the
-    full clamp assembly.  Returns ``(ae_params, ae_opt_state, aux)``.
+    Control = this SAME function at λ=0 (a TRACED 0.0 multiply of the full L_compat graph; NO python
+    branch on λ) → the compat half contributes exactly 0 to the gradient, so the λ=0 update is the pure
+    reconstruction update == the control.
+
+    LEGACY constant-clamp path (``clamp_latents_per_step`` provided): the compat clamp is the passed-in
+    CONSTANT (not encode(params, x)).  This path is DOCUMENTED-INERT in ae_params (the compat does NOT
+    steer the encoder — ∂(λ·L_compat)/∂ae_params ≡ 0 for any λ) and is retained only for the λ=0-traced-0
+    determinism check (zero-compute G7) until that gate migrates to the steering path; do NOT use it for a
+    real Stage-C run.  At λ=0 it still gives the exact control (the traced-0 multiply).
+
+    GPU-wired (smoke-deferred — `encode` at the production 196-latent / 44_12 scale is the smoke's job).
+    ``step_maps`` is the refresh-gated, x64-scoped positive-phase maps for this diffusion step (built via
+    :func:`step_maps_for`); if ``None`` it is built here.  Returns ``(ae_params, ae_opt_state, aux)``.
 
     NOTE: the FULL Stage-C alternation (one DTM epoch on DETACHED latents, then this enc/dec epoch) is
     wired by the smoke driver; this is the differentiable enc/dec half (the λ-traced compat steering).
@@ -625,12 +752,22 @@ def joint_update_step(ae_module, ae_params, ae_opt_state, ae_optim, step, clamp_
     from htdml import autoencoder as AE
 
     loss_kwargs = loss_kwargs or {}
+    if step_maps is None:
+        step_maps = step_maps_for(step)
+    n_img = int(step_maps[0]["n_img"])
 
     def _loss(params):
-        # reconstruction half (STE forward = hard latent; backward = tanh surrogate).
+        # reconstruction half (STE forward = hard latent; backward = tanh surrogate) — encodes INSIDE.
         recon, aux = AE.stage_a_loss(params, x_batch, **loss_kwargs)
-        # compat half: λ·L_compat over the per-step clamps (image_output carries the gradient).
-        compat_val, _fin = C.compat_loss(lam, clamp_latents_per_step, step_maps_for(step), beta)
+        if clamp_latents_per_step is not None:
+            # LEGACY: constant clamp (documented-inert in ae_params; λ=0 still gives the control).
+            compat_val, _fin = C.compat_loss(lam, clamp_latents_per_step, step_maps, beta)
+        else:
+            # FIX: λ·L_compat with the encode→clamp wiring INSIDE (image_output = encoded b0 carries the
+            # gradient).  A CONSTANT clamp arg would zero ∂(λ·L_compat)/∂ae_params — the bug.
+            compat_val, _fin = compat_steering_loss(params, x_batch, label_clamp, bt_clamp,
+                                                    step_maps, beta, lam, n_img=n_img,
+                                                    encode_fn=encode_fn)
         return recon + compat_val, aux
 
     with _x64():

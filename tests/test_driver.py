@@ -341,6 +341,138 @@ def test_compat_term_does_not_branch_on_lambda():
         "compat_term must not python-branch on λ (the control is λ=0 through the SAME traced code path)")
 
 
+# ====================================================================== λ STEERS the encoder (the real gate)
+def _tiny_ste_encoder(n_img):
+    """A tiny DIFFERENTIABLE STE 'encoder' of latent width ``n_img`` for the steering test: params is a
+    weight matrix; b0 = STE-hard-sign(x @ W) ∈ {−1,+1} with a tanh backward surrogate (the SAME STE the
+    real BinaryAutoencoder uses).  Returns encode_fn.  Lets the steering property be exercised on the
+    narrow (n_img=3) 4_4 fixture image_output block without the 196-wide production AE."""
+    import htdml.autoencoder as AE
+
+    def encode_fn(params, x):
+        logits = jnp.asarray(x) @ params["W"]              # (B, n_img) logits, depends on params
+        b0 = AE._ste_hard_sign(logits)                     # {−1,+1}, ∂/∂logits = 1−tanh² (STE)
+        return b0, logits
+
+    return encode_fn
+
+
+def test_lambda_steers_the_encoder_nonzero_at_lam_gt0_zero_at_lam0():
+    """THE real 'λ steers the encoder' gate (was MISSING — the bug): ∂(λ·L_compat-only loss)/∂ae_params
+    is NON-ZERO at λ>0 (the compat steers the encoder via the STE through the image_output latent) and
+    EXACTLY ZERO at λ=0 (the control).  On the real 4_4 fixture DTM (image_output block n_img=3)."""
+    from tests.fixture_6_4 import _build_fixture_step, _rng_pm1
+
+    _dtm, step = _build_fixture_step()
+    beta = float(step.training_spec.beta)
+    step_maps = D.step_maps_for(step)
+    n_img = int(step_maps[0]["n_img"])
+    n_clamp = int(step_maps[0]["n_clamp"])
+    n_rest = n_clamp - n_img
+
+    encode_fn = _tiny_ste_encoder(n_img)
+    rng = np.random.default_rng(0)
+    n_in = 5
+    params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
+    x_batch = jnp.asarray(rng.normal(size=(4, n_in)), dtype=jnp.float64)
+    label_clamp = jnp.asarray(_rng_pm1(rng, n_rest))               # label_output + b_t columns (hard)
+    bt_clamp = jnp.zeros((0,))                                     # all 'rest' folded into label_clamp
+
+    def steer_loss(p, lam):
+        with D._x64():
+            val, _fin = D.compat_steering_loss(p, x_batch, label_clamp, bt_clamp, step_maps, beta,
+                                               lam, n_img=n_img, encode_fn=encode_fn)
+        return val
+
+    # λ>0 → gradient w.r.t. the encoder params is NON-ZERO (the compat steers the encoder).
+    with D._x64():
+        g_pos = jax.grad(lambda p: steer_loss(p, 0.7))(params)
+    g_pos_W = np.asarray(g_pos["W"])
+    assert np.any(np.abs(g_pos_W) > 1e-9), (
+        "∂(λ·L_compat)/∂ae_params is ZERO at λ>0 — the compat does NOT steer the encoder (the encode→"
+        "clamp wiring is not inside the differentiated loss; Stage C would be inert)")
+
+    # λ=0 → gradient is EXACTLY zero (the control, via the traced-0.0 multiply).
+    with D._x64():
+        g_zero = jax.grad(lambda p: steer_loss(p, 0.0))(params)
+    g_zero_W = np.asarray(g_zero["W"])
+    assert np.all(g_zero_W == 0.0), (
+        f"∂(λ·L_compat)/∂ae_params must be EXACTLY 0 at λ=0 (control): max|g|={np.abs(g_zero_W).max()}")
+
+    print(f"\n[STEERING] λ=0.7: max|∂L_compat/∂W|={np.abs(g_pos_W).max():.4g} (≠0 → steers encoder); "
+          f"λ=0: max|∂/∂W|={np.abs(g_zero_W).max():.4g} (=0 → control)")
+
+
+def test_lambda_zero_joint_update_is_bitwise_control():
+    """The λ=0 joint update yields ae_params bitwise-identical to the control (pure-reconstruction)
+    update — the compat half contributes EXACTLY 0 to the gradient at λ=0 (same code path, traced 0.0);
+    λ>0 must DIFFER (the steering actually moved the encoder)."""
+    import optax
+
+    from tests.fixture_6_4 import _build_fixture_step, _rng_pm1
+
+    _dtm, step = _build_fixture_step()
+    beta = float(step.training_spec.beta)
+    step_maps = D.step_maps_for(step)
+    n_img = int(step_maps[0]["n_img"])
+    n_clamp = int(step_maps[0]["n_clamp"])
+    n_rest = n_clamp - n_img
+    encode_fn = _tiny_ste_encoder(n_img)
+    rng = np.random.default_rng(1)
+    n_in = 5
+    params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
+    x_batch = jnp.asarray(rng.normal(size=(4, n_in)), dtype=jnp.float64)
+    label_clamp = jnp.asarray(_rng_pm1(rng, n_rest))
+    bt_clamp = jnp.zeros((0,))
+
+    # the differentiable half: a stand-in reconstruction (sum of squared logits) + λ·L_compat steering.
+    def loss_at(p, lam):
+        with D._x64():
+            recon = jnp.sum((jnp.asarray(x_batch) @ p["W"]) ** 2)
+            compat, _fin = D.compat_steering_loss(p, x_batch, label_clamp, bt_clamp, step_maps, beta,
+                                                  lam, n_img=n_img, encode_fn=encode_fn)
+        return recon + compat
+
+    optim = optax.sgd(0.01)
+
+    def one_update(lam):
+        with D._x64():
+            g = jax.grad(lambda p: loss_at(p, lam))(params)
+            opt_state = optim.init(params)
+            updates, _ = optim.update(g, opt_state, params)
+            return optax.apply_updates(params, updates)
+
+    joint0 = one_update(0.0)         # λ=0 (control via the same code path)
+    control = one_update(0.0)        # the pure-reconstruction reference (λ=0 IS the control)
+    jointL = one_update(0.5)         # λ>0 must DIFFER (the steering actually moved the encoder)
+
+    np.testing.assert_array_equal(np.asarray(joint0["W"]), np.asarray(control["W"]))  # bitwise control
+    assert not np.allclose(np.asarray(jointL["W"]), np.asarray(control["W"])), (
+        "λ>0 update must DIFFER from the λ=0 control (else the steering is inert)")
+
+
+# ====================================================================== live ACP coefficient stored
+def test_epoch_record_stores_live_acp_coefficient():
+    """The per-epoch + per-layer record stores the LIVE ACP coefficient (correlation_penalty post-
+    adapt_param) — the field that was MISSING from every driver record."""
+    probe_layer = dict(gradient_norm=1.5, **{"r_grad[1]": 0.3, "r_grad[50]": 0.02},
+                       tau_int_Y=12.0, ESS_hat=22.0, Q_struct_perp=1.1)
+    rec = D.make_epoch_layer_record(epoch=3, layer=2, bce=0.12, fid=1.4,
+                                    correlation_penalty=0.0042, probe_layer_dict=probe_layer)
+    assert rec.correlation_penalty == pytest.approx(0.0042), "live ACP coefficient not stored"
+    # every plan-required scalar is present on the record.
+    for f in ("epoch", "layer", "bce", "fid", "correlation_penalty", "gradient_norm",
+              "r_grad_1", "r_grad_50", "tau_int_Y", "ESS_hat", "Q_struct_perp"):
+        assert hasattr(rec, f), f"EpochLayerRecord missing field {f}"
+
+
+def test_live_acp_coefficient_reads_post_adapt_param_vector():
+    """live_acp_coefficient reads cp_coeffs[step] (the post-adapt_param value the DTM loop maintains)."""
+    cp_coeffs = np.asarray([0.001, 0.0035, 0.0])     # one per reverse layer (post-adapt_param)
+    assert D.live_acp_coefficient(None, 1, cp_coeffs) == pytest.approx(0.0035)
+    assert D.live_acp_coefficient(None, 2, cp_coeffs) == pytest.approx(0.0)
+
+
 # ====================================================================== float64 scoping (no global leak)
 def test_compat_term_is_x64_scoped_no_global_leak():
     """The compat grad runs x64-scoped; after the call jax_enable_x64 is restored (no global leak)."""

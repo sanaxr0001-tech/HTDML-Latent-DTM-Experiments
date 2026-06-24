@@ -4,18 +4,22 @@ This module builds a small DTM model isomorphic to the production superblock str
 validates the build's MECHANISMS by EXACT enumeration. It is the arbiter the rest of the companion
 trusts: every check below HARD-FAILS (pytest assertion) on violation.
 
-  (a) hard-bit forward noising + b_t stop-gradient  — the REAL forward noiser `get_perturbed_data`
+  (a) hard-bit forward noising + b_t detachment      — the REAL forward noiser `get_perturbed_data`
       (step.py:454, used at step.py:203-204) draws HARD {0,1} bits → hard {−1,+1} spins, and NO
-      gradient flows from b_t into b0 / the encoder (b_t is `stop_gradient(forward_noise(b0))`).
+      gradient reaches b0 / the encoder through b_t (b_t = `stop_gradient(forward_noise(b0))`; the
+      discrete draw is non-differentiable too — see the scope note on the gradient sub-test).
   (b) reversible-sampler detailed balance               — re-certify DB (reuse `selfadjoint_cert`) on
       the fixture's 4-superblock negative-phase structure (max_asym < 1e-10).
   (c) Rademacher / Sokal trainability estimator vs EXACT — full 2^N enumeration of the Boltzmann law
       gives the EXACT Var_π[f_a] and the EXACT T_O via the reversible kernel's enumerable transition
       matrix (exp1-style); the real `sokal_profile_from_spins` estimator on CPU trajectories from that
       same kernel must AGREE within a stated, SE-aware tolerance.
-  (e) checkpoint rollback reproducibility               — perturb (eqx.tree_at write-back, NO
-      dtm.train), save (the DTM.save_epoch eqx-partition), mutate, restore (the DTM.load eqx path);
-      `_weights_hash` / `_key_list` / `_find_counts` + the autocorrelations dict all reproduce.
+  (e) checkpoint rollback via the REAL DTM.load          — perturb (eqx.tree_at write-back, NO
+      dtm.train), save (`DTM.save_epoch`), mutate, restore (`DTM.load`); weights (`_weights_hash`) /
+      opt counts (`_find_counts`) / RNG keys (`_key_list`) restored bitwise, while `autocorrelations`
+      come back EMPTY (DTM.load drops the unsaved static) → recovered by the OUT-OF-BAND re-inject the
+      Task-8 driver performs.
+  Plus a MANDATORY `refreshed_weight_proof` gate on the fixture DTM (the exp15/16 stale-factors guard).
 
 THE SIZING DECISION (resolved by inspecting source — documented in task-4-report.md):
   * The grid is `side_len²` nodes (poisson_binomial_ising_graph_manager.py:122 `size = side_len**2`),
@@ -29,10 +33,16 @@ THE SIZING DECISION (resolved by inspecting source — documented in task-4-repo
     This is the REAL DTM (real build_maps / energy_free / get_perturbed_data / DTM.load exercised).
   * The EXACT integrated-autocorrelation T_O needs the kernel's 2^N × 2^N transition matrix; a dense
     65536² matrix is ~34 GB → INFEASIBLE. So check (c)'s EXACT-T_O comparison uses a tiny (N=10)
-    enumerable cell that is ISOMORPHIC to the 5-superblock layout, built with the cert's exp1-style
-    exact machinery (`selfadjoint_cert.make_dtm_negative_cell` → `block_gibbs_matrix` →
-    ½(P_fwd+P_rev)), and the REAL estimator `sokal_profile_from_spins`. The REAL 4_4 model's
-    `energy_free` exact-π enumeration is ALSO exercised in (c) to confirm the real energy path
+    enumerable cell that is GENUINELY STRICTLY-BIPARTITE-ISOMORPHIC to the production 5-superblock
+    layout (base edges ONLY upper_hidden↔lower_hidden, lower_hidden↔image_output, lower_hidden↔
+    label_output — NO upper↔output, NO intra-superblock, NO output↔output edges; verified against the
+    REAL graph in test_fixture_model_is_production_shape and asserted on the cell by
+    `_assert_strictly_bipartite_cell`). It is built by a FIXTURE-LOCAL `_make_bipartite_cell` (NOT the
+    Task-2 `selfadjoint_cert.make_dtm_negative_cell`, which wires extra upper↔output edges that break
+    isomorphism — those do not affect the DB-cert, which we leave UNCHANGED), reusing the cert's
+    exp1-style enumeration helpers (`spin_table` / `boltzmann_clamped` / `block_gibbs_matrix` /
+    `ordered_product` → ½(P_fwd+P_rev)) and the REAL estimator `sokal_profile_from_spins`. The REAL 4_4
+    model's `energy_free` exact-π enumeration is ALSO exercised in (c) to confirm the real energy path
     enumerates. (Brief: "If NO real preset is small enough for full 2^N, hand-build a tiny Ising
     structure isomorphic to the 5-superblock layout … but PREFER a real DTM step.")
 
@@ -169,9 +179,71 @@ def test_fixture_model_is_production_shape():
         f"b_t coupling edges {maps['n_coupling']} != {EXPECTED_N_COUPLING} (1-to-1 to outputs)")
     assert maps["n_clamp"] == EXPECTED_N_CLAMP
     assert maps["n_edge"] > 0 and maps["n_bias"] == EXPECTED_N_TOTAL
+
+    # --- STRICT-BIPARTITE premise (load-bearing for Stage-C marginalization, Task 5) -----------------
+    # Classify EVERY real base_graph_edge by superblock. Production must be: upper half ↔ lower half
+    # ONLY; NO intra-half edges; upper_hidden couples ONLY to lower_hidden (NO upper_hidden↔output);
+    # NO output↔output. This is the premise the closed-form lower_hidden marginalization rests on.
+    g = step.model.graph
+    nm = g.node_mapping
+    uh = set(nm[n] for n in free_blocks[0])
+    lh = set(nm[n] for n in free_blocks[1])
+    io = set(nm[n] for n in free_blocks[2])
+    lo = set(nm[n] for n in free_blocks[3])
+    upper, lower = uh | io | lo, lh
+
+    def _cls(x):
+        return "uh" if x in uh else ("out" if (x in io or x in lo) else "lh")
+
+    n_uh_lh = n_out_lh = 0
+    for e in g.base_graph_edges:
+        a, b = nm[e.connected_nodes[0]], nm[e.connected_nodes[1]]
+        A = "upper" if a in upper else "lower"
+        B = "upper" if b in upper else "lower"
+        assert A != B, f"intra-half base edge {a}-{b} — production must be strictly bipartite"
+        ca, cb = _cls(a), _cls(b)
+        pair = tuple(sorted((ca, cb)))
+        assert pair != ("out", "uh"), (
+            f"upper_hidden↔output base edge {a}-{b} — upper_hidden must couple ONLY to lower_hidden")
+        assert pair != ("out", "out"), f"output↔output base edge {a}-{b} — outputs couple only to lower"
+        if pair == ("lh", "uh"):
+            n_uh_lh += 1
+        elif "lh" in pair and "out" in pair:
+            n_out_lh += 1
+    assert n_uh_lh > 0 and n_out_lh > 0, (
+        f"degenerate coupling (uh↔lh={n_uh_lh}, out↔lh={n_out_lh}) — both must be present")
+
     print(f"\n[FIXTURE] real 4_4 DTM: superblocks {list(SUPERBLOCK_NAMES)} sizes {block_lens} "
           f"N_total={n_total} (2^N={2**n_total}); clamp b_t={n_clamp}; coupling={maps['n_coupling']}; "
-          f"base_edges={maps['n_edge']}; manager=PoissonBinomial")
+          f"base_edges={maps['n_edge']}; manager=PoissonBinomial\n"
+          f"[FIXTURE] STRICT-BIPARTITE verified: upper↔lower only; uh↔lh={n_uh_lh}, out↔lh={n_out_lh}; "
+          f"NO upper_hidden↔output, NO output↔output, NO intra-half edges (Stage-C premise holds)")
+
+
+# ====================================================================== MANDATORY refresh-proof gate
+def test_mandatory_refreshed_weight_proof_on_fixture():
+    """MANDATORY (brief: "must pass for the fixture DTM before any probe. Call it."): the exp15/16
+    stale-factors guard. The fixture's perturbation (eqx.tree_at write-back leaving `model.factors`
+    stale, the faithful exp15/16-bug repro) sets up the stale substrate; a freshly-built
+    AnnealingIsingSamplingProgram reads those stale INIT factors, and the refresh re-injects the trained
+    weights. `refreshed_weight_proof` must return constructor_was_stale=True AND refresh_ok=True
+    (refreshed_vs_trained_maxabs ≈ 0). This is the whole reason the companion exists — every probe and
+    every L_compat build must clear it."""
+    _dtm, step = _build_fixture_step()
+    proof = pp.refreshed_weight_proof(step)
+    assert set(["refresh_ok", "constructor_was_stale", "refreshed_vs_trained_maxabs",
+                "stale_vs_trained_maxabs"]).issubset(proof)
+    assert proof["constructor_was_stale"] is True, (
+        f"constructor was NOT stale (stale_vs_trained_maxabs={proof['stale_vs_trained_maxabs']}) — the "
+        "exp15/16 bug premise does not hold on the fixture; the guard would be vacuous")
+    assert proof["refresh_ok"] is True, (
+        f"refresh did NOT take (refreshed_vs_trained_maxabs={proof['refreshed_vs_trained_maxabs']}) — "
+        "the mandatory trained-weight refresh is broken")
+    assert proof["refreshed_vs_trained_maxabs"] < 1e-6
+    assert proof["stale_vs_trained_maxabs"] > 1e-6
+    print(f"\n[REFRESH-PROOF] fixture DTM: constructor_was_stale=True "
+          f"(stale_vs_trained_maxabs={proof['stale_vs_trained_maxabs']:.4f}); refresh_ok=True "
+          f"(refreshed_vs_trained_maxabs={proof['refreshed_vs_trained_maxabs']:.2e})  PASS")
 
 
 # ====================================================================== (a) hard-bit + b_t stop-gradient
@@ -192,9 +264,17 @@ def test_a_forward_noise_is_hard_bit_draw():
         f"b_t spins not hard ±1: {np.unique(spins)}")
 
 
-def test_a_bt_stop_gradient_detaches_encoder():
-    """(a-ii) b_t = stop_gradient(forward_noise(b0)) carries NO gradient back into b0 / the encoder:
-    jax.grad of any function of b_t w.r.t. b0 is EXACTLY zero (only b0 carries ∂L/∂latent)."""
+def test_a_no_gradient_reaches_b0_through_bt():
+    """(a-ii) NO gradient reaches b0 / the encoder through b_t = stop_gradient(forward_noise(b0)):
+    jax.grad of any function of b_t w.r.t. b0 is EXACTLY zero (only b0 carries ∂L/∂latent).
+
+    SCOPE NOTE (honest labelling): the REAL forward noiser is a discrete bernoulli draw and is therefore
+    already non-differentiable, so jax.grad is zero WITH OR WITHOUT the explicit `stop_gradient` — this
+    test validates the *property the build needs* ("no gradient reaches b0 through b_t"), but it CANNOT
+    distinguish stop_gradient-present from stop_gradient-absent (both give exactly zero). The companion
+    relies on BOTH facts (the build-notes wrap b_t in `stop_gradient` as a declarative guard; the draw is
+    structurally non-differentiable anyway). We assert both branches to document this, NOT to claim the
+    test exercises stop_gradient specifically."""
     import jax
     import jax.numpy as jnp
     import jax.random as jr
@@ -209,16 +289,18 @@ def test_a_bt_stop_gradient_detaches_encoder():
         return jnp.sum(bt ** 2 + 3.0 * bt)                   # arbitrary non-trivial fn of b_t
 
     g = np.asarray(jax.grad(loss_through_bt)(b0))
-    assert np.all(g == 0.0), f"gradient leaked through b_t into b0 (must be all-zero): {g}"
+    assert np.all(g == 0.0), f"gradient reached b0 through b_t (must be all-zero): {g}"
 
-    # and even WITHOUT stop_gradient the discrete bernoulli draw is non-differentiable (also zero) —
-    # belt-and-suspenders: the detachment is structural, not only the explicit stop_gradient.
+    # WITHOUT stop_gradient the discrete bernoulli draw is STILL non-differentiable (also exactly zero):
+    # this is why the test can't discriminate present/absent — the detachment is structural.
     def loss_no_sg(b0):
         bt = get_perturbed_data(key, b0, dt=0.5, rates=0.8, bin_trials=1)
         return jnp.sum(bt ** 2 + 3.0 * bt)
 
     g2 = np.asarray(jax.grad(loss_no_sg)(b0))
-    assert np.all(g2 == 0.0), f"unexpected nonzero grad through a discrete draw: {g2}"
+    assert np.all(g2 == 0.0), (
+        "discrete draw unexpectedly differentiable — the 'no gradient reaches b0' property would then "
+        f"rely solely on stop_gradient: {g2}")
 
 
 # ====================================================================== (b) reversible-sampler DB
@@ -247,14 +329,81 @@ def test_b_detailed_balance_on_fixture_structure():
 
 
 # ====================================================================== (c) estimator vs EXACT
+def _make_bipartite_cell(rng, sizes=(2, 4, 2, 2), n_clamp=4, beta=0.9):
+    """Build a STRICTLY-BIPARTITE 5-superblock cell that is genuinely ISOMORPHIC to the production
+    DTM negative-phase graph (verified in test_fixture_model_is_production_shape): base edges are
+    ONLY upper_hidden↔lower_hidden, lower_hidden↔image_output, lower_hidden↔label_output — i.e. the
+    upper half {upper_hidden, image_output, label_output} couples ONLY to the lower half
+    {lower_hidden}; there are NO upper↔output edges, NO intra-superblock edges, NO output↔output
+    edges. b_t (the clamp) couples 1-to-1 to the OUTPUT sites with fixed forward-diffusion weights.
+
+    NOTE: this is a corrected, FIXTURE-LOCAL builder. The Task-2 `selfadjoint_cert.make_dtm_negative_cell`
+    additionally wires upper↔output edges (selfadjoint_cert.py:152-154) that do NOT exist in production
+    — those extra edges do not affect the DB certificate (self-adjointness holds for ANY edge set), but
+    they break structural isomorphism, so we do NOT reuse it for the structurally-faithful exact-T_O
+    comparison. We DO reuse its enumeration helpers (spin_table / boltzmann_clamped / block_gibbs_matrix
+    / ordered_product / max_asym) — the exp1-style EXACT machinery. We do NOT change the DB-cert.
+
+    Returns (blocks, J, h, coupling, s_clamp, beta) matching the selfadjoint_cert signature."""
+    blocks = []
+    idx = 0
+    for sz in sizes:
+        blocks.append(list(range(idx, idx + sz)))
+        idx += sz
+    n = idx
+    upper, lower, img_out, lab_out = blocks
+    J = np.zeros((n, n))
+
+    def add_edge(a, b, w):
+        J[a, b] = J[b, a] = w
+
+    pairs = []
+    for u in upper:                       # upper_hidden ↔ lower_hidden ONLY
+        for l in lower:
+            pairs.append((u, l))
+    for l in lower:                       # lower_hidden ↔ {image_output, label_output} ONLY
+        for o in img_out + lab_out:
+            pairs.append((l, o))
+    for a, b in pairs:
+        add_edge(a, b, float(rng.normal(0.0, 0.7)))
+
+    h = rng.normal(0.0, 0.5, size=n)
+    out_sites = img_out + lab_out         # b_t couples 1-to-1 to the OUTPUT sites (fixed diffusion wts)
+    cf = np.array(out_sites, dtype=np.int64)
+    cc = rng.integers(0, n_clamp, size=len(out_sites)).astype(np.int64)
+    cw = rng.normal(0.0, 0.6, size=len(out_sites))
+    s_clamp = rng.choice([-1.0, 1.0], size=n_clamp).astype(float)
+    return blocks, J, h, (cf, cc, cw), s_clamp, beta
+
+
+def _assert_strictly_bipartite_cell(blocks, J):
+    """Assert the cell's base graph is strictly bipartite and matches production: no intra-half edges,
+    no upper_hidden↔output edges, no output↔output edges (upper half ↔ lower half only)."""
+    uh, lh, io, lo = (set(b) for b in blocks)
+    upper, lower = uh | io | lo, lh
+    n = J.shape[0]
+    for a in range(n):
+        for b in range(a + 1, n):
+            if J[a, b] == 0:
+                continue
+            A = "upper" if a in upper else "lower"
+            B = "upper" if b in upper else "lower"
+            assert A != B, f"intra-half edge {a}-{b} (cell not bipartite)"
+            uh_out = (a in uh and (b in io or b in lo)) or (b in uh and (a in io or a in lo))
+            assert not uh_out, f"upper_hidden↔output edge {a}-{b} (not production-isomorphic)"
+            out_out = (a in io or a in lo) and (b in io or b in lo)
+            assert not out_out, f"output↔output edge {a}-{b} (not production-isomorphic)"
+
+
 def _build_exact_cell(seed=0, sizes=(2, 4, 2, 2), n_clamp=4, beta=0.9):
-    """Build the tiny (N=10) 5-superblock-isomorphic enumerable cell (exp1-style EXACT machinery,
-    reusing selfadjoint_cert), returning everything check (c) needs: the exact Boltzmann π, the
-    reversible kernel K = ½(P_fwd+P_rev), and the gradient-observable maps (edge products + node spins).
-    """
+    """Build the tiny (N=10) STRICTLY-BIPARTITE 5-superblock-ISOMORPHIC enumerable cell (exp1-style
+    EXACT machinery, reusing selfadjoint_cert's enumeration helpers on the corrected bipartite graph),
+    returning everything check (c) needs: the exact Boltzmann π, the reversible kernel K = ½(P_fwd+P_rev),
+    and the gradient-observable maps (edge products + node spins)."""
     rng = np.random.default_rng(seed)
-    blocks, J, h, coupling, s_clamp, beta = sc.make_dtm_negative_cell(rng, sizes=sizes,
-                                                                      n_clamp=n_clamp, beta=beta)
+    blocks, J, h, coupling, s_clamp, beta = _make_bipartite_cell(rng, sizes=sizes,
+                                                                 n_clamp=n_clamp, beta=beta)
+    _assert_strictly_bipartite_cell(blocks, J)                # the cell IS production-isomorphic
     N = sum(len(b) for b in blocks)
     S = sc.spin_table(N)                                       # (2^N, N) in {−1,+1}
     pi = sc.boltzmann_clamped(S, J, h, coupling, s_clamp, beta)
@@ -426,56 +575,81 @@ def test_c_rademacher_screen_brackets_full_profile():
 
 
 # ====================================================================== (e) checkpoint rollback
-def test_e_checkpoint_rollback_reproducibility():
-    """(e) Perturb the fixture DTM weights (eqx.tree_at write-back; NO dtm.train), inject a non-trivial
-    autocorrelations dict + opt count, save via the DTM.save_epoch eqx-partition, MUTATE, then RESTORE
-    via the DTM.load eqx-deserialise path; assert bitwise reproducibility through the probe_primitives
-    rollback helpers (`_weights_hash`, `_key_list`, `_find_counts`) AND the autocorrelations dict.
-    This is the rollback the Task-8 driver fork/restore depends on."""
+def test_e_checkpoint_rollback_real_dtm_load_round_trip():
+    """(e) The REAL `DTM.save_epoch` + `DTM.load` round-trip (both run on CPU — verified; only
+    `dtm.train` needs a GPU). Perturb the fixture DTM (eqx.tree_at write-back; NO dtm.train), inject a
+    non-trivial autocorrelations dict, save, then load with `DTM.load`. Validates the TRUE behaviour the
+    Task-8 driver must handle:
+
+      * weights restored BITWISE (`_weights_hash`), opt counts (`_find_counts`) and RNG keys
+        (`_key_list`) restored — these ARE in the save-mask (genuine);
+      * the `autocorrelations` dict is NOT restored by `DTM.load` — it is UNSAVED static (not in the
+        save-mask), so `DTM.load` (DTM.py:1002-1019) recombines the saved params with a FRESH like-step
+        whose `autocorrelations == {}` → it comes back EMPTY (the dict is LOST on load). We assert this
+        explicitly (the plan requires restoring autocorrelations OUT-OF-BAND for exactly this reason);
+      * the OUT-OF-BAND restore (re-inject the saved dict, as the Task-8 driver will) recovers them."""
     import equinox as eqx
-    import jax
+    import jax.random as jr
 
-    dtm, step_ckpt = _build_fixture_step()                    # perturbed (trained-like) checkpoint state
+    from thrmlDenoising.DTM import DTM
+    from thrmlDenoising.utils import make_cfg
 
-    # Inject non-default provenance state into the checkpoint so the restore carries REAL (non-empty)
-    # state — autocorrelations dict (NOT in the save-mask: reconstructed from the like-step template,
-    # exactly as DTM.load does) + a bumped opt count (IS serialised).
+    # Build a real DTM and perturb step 0 (trained-like; faithful stale-factors write-back, NO dtm.train).
+    try:
+        dtm = DTM(make_cfg(**FIXTURE_CFG))
+    except Exception as e:  # pragma: no cover
+        pytest.fail(f"NEEDS_CONTEXT: 4_4 fixture DTM could not be instantiated on CPU: {e}")
+    step_ckpt = _perturb_step(dtm.steps[0], seed=7)
+
+    # Inject a non-trivial autocorrelations dict (the UNSAVED static the driver must carry out-of-band).
     autocorr_payload = {"epoch_0": np.asarray([0.42, 0.17, 0.05], dtype=np.float64)}
-    step_ckpt = eqx.tree_at(lambda s: s.autocorrelations, step_ckpt, autocorr_payload,
-                            is_leaf=lambda x: isinstance(x, dict))
+    step_ckpt = eqx.tree_at(lambda s: s.autocorrelations, step_ckpt, autocorr_payload)
     hash_ckpt = pp._weights_hash(step_ckpt)
     counts_ckpt = pp._find_counts(step_ckpt.opt_state)
     key_ckpt = pp._key_list(dtm)
 
-    # --- SAVE: the exact DTM.save_epoch partition (weights, biases, opt_state) + eqx serialise. ------
-    save_mask = jax.tree_util.tree_map(lambda _: False, step_ckpt)
-    save_mask = eqx.tree_at(lambda s: (s.model.weights, s.model.biases, s.opt_state),
-                            save_mask, (True, True, True))
-    params, _static = eqx.partition(step_ckpt, save_mask)
-    fp = os.path.join(tempfile.mkdtemp(prefix="htdml_roll_"), "step_00.eqx")
-    eqx.tree_serialise_leaves(fp, params)
+    # DTM is a plain class (NOT an eqx.Module): set fields by direct assignment.
+    dtm.steps[0] = step_ckpt
+    workdir = tempfile.mkdtemp(prefix="htdml_roll_")
+    dtm.logging_and_saving_dir = workdir
 
-    # --- MUTATE in place (simulate further training: weights AND opt state change). ------------------
+    # --- SAVE via the REAL DTM.save_epoch (eqx partition weights/biases/opt_state + serialise). -------
+    dtm.save_epoch(0)
+    base = os.path.join(workdir, "model_saving")
+    assert os.path.isdir(os.path.join(base, "epoch_000")), "save_epoch did not write the epoch dir"
+
+    # --- MUTATE the live object (simulate further training drifting away from the checkpoint). --------
     w_mut = step_ckpt.model.weights + 1.0
     b_mut = step_ckpt.model.biases + 1.0
-    step_mut = eqx.tree_at(lambda s: (s.model.weights, s.model.biases), step_ckpt, (w_mut, b_mut))
-    assert pp._weights_hash(step_mut) != hash_ckpt, "mutation did not change the weights hash"
+    dtm.steps[0] = eqx.tree_at(lambda s: (s.model.weights, s.model.biases), step_ckpt, (w_mut, b_mut))
+    assert pp._weights_hash(dtm.steps[0]) != hash_ckpt, "mutation did not change the weights hash"
 
-    # --- RESTORE: the DTM.load deserialise-into-like-step path (the saved leaves win). ---------------
-    restored_params = eqx.tree_deserialise_leaves(fp, params)
-    step_restored = eqx.combine(restored_params, eqx.filter(step_ckpt, save_mask, inverse=True))
+    # --- RESTORE via the REAL DTM.load (constructs a fresh DTM + deserialises into a like-step). ------
+    try:
+        dtm_loaded = DTM.load(base, epoch=0)
+    except Exception as e:  # pragma: no cover
+        pytest.fail(f"NEEDS_CONTEXT: DTM.load failed on CPU (does it require a GPU like dtm.train?): {e}")
+    step_loaded = dtm_loaded.steps[0]
 
-    # weights restored bitwise.
-    assert pp._weights_hash(step_restored) == hash_ckpt, (
-        f"weights hash mismatch after rollback: {pp._weights_hash(step_restored)} != {hash_ckpt}")
-    # optax/step counts restored.
-    assert pp._find_counts(step_restored.opt_state) == counts_ckpt, "opt-state counts not restored"
-    # RNG keys (dtm-level) unchanged across the round-trip.
-    assert pp._key_list(dtm) == key_ckpt, "dtm RNG key drifted across rollback"
-    # the autocorrelations dict (reconstructed from the like-step template) reproduces.
-    assert set(step_restored.autocorrelations.keys()) == set(autocorr_payload.keys()), (
-        "autocorrelations dict keys not restored")
-    np.testing.assert_array_equal(step_restored.autocorrelations["epoch_0"],
-                                  autocorr_payload["epoch_0"])
-    print(f"\n[ROLLBACK] weights-hash {hash_ckpt} restored bitwise; opt counts {counts_ckpt} restored; "
-          f"dtm key {key_ckpt} stable; autocorrelations dict reproduced  PASS")
+    # (1) weights restored BITWISE (in the save-mask).
+    assert pp._weights_hash(step_loaded) == hash_ckpt, (
+        f"weights hash mismatch after DTM.load: {pp._weights_hash(step_loaded)} != {hash_ckpt}")
+    # (2) opt counts restored (opt_state is in the save-mask).
+    assert pp._find_counts(step_loaded.opt_state) == counts_ckpt, "opt-state counts not restored by DTM.load"
+    # (3) dtm-level RNG keys reconstructed identically (fresh DTM from the same config).
+    assert pp._key_list(dtm_loaded) == key_ckpt, "DTM.load RNG key differs from the checkpoint DTM"
+
+    # (4) THE REAL BEHAVIOUR: autocorrelations are NOT restored — DTM.load drops the unsaved static and
+    #     the fresh like-step's autocorrelations is {} (the Task-8 bug the driver must work around).
+    assert step_loaded.autocorrelations == {}, (
+        f"DTM.load unexpectedly RESTORED autocorrelations ({step_loaded.autocorrelations}) — if this "
+        "ever becomes true the out-of-band restore in the Task-8 driver is redundant; update the plan")
+
+    # (5) OUT-OF-BAND restore (the Task-8 driver pattern): re-inject the saved dict → recovered.
+    step_loaded.autocorrelations.update(autocorr_payload)
+    assert set(step_loaded.autocorrelations.keys()) == set(autocorr_payload.keys())
+    np.testing.assert_array_equal(step_loaded.autocorrelations["epoch_0"], autocorr_payload["epoch_0"])
+
+    print(f"\n[ROLLBACK real DTM.load] weights-hash {hash_ckpt} restored bitwise; opt counts "
+          f"{counts_ckpt} restored; dtm key {key_ckpt} reconstructed; autocorrelations DROPPED by "
+          f"DTM.load (=={{}}) then OUT-OF-BAND restored (Task-8 driver pattern)  PASS")

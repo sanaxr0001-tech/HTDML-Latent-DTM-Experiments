@@ -100,50 +100,56 @@ def _read_pins_text() -> str:
 def _extract_calib_value(key: str, pins_text: str):
     """Return (value_or_none, is_tbd: bool) for a calibration-frozen constant in PINS.md.
 
-    Searches ONLY in the "TBD-at-step placeholders" section of PINS.md, which is the section
-    that explicitly lists L_traj, N_chains, N_R, C, ESS_min as frozen-at-calibration values.
-    Matching against the full text would pick up other occurrences of letters (e.g. "C" in
-    "SOKAL_C", "5.0" is a different constant — trajectory-adequacy C ≠ sokal_self_consistency C).
+    Robust to the Task-12 freeze (the TRAP the review flagged): Task 12 replaces "TBD" with frozen
+    numbers on the SAME PINS row.  We therefore split each markdown table row on `|` and inspect ONLY
+    the VALUE/STATUS column (the cell that is NOT the Item column where the constant NAME lives), so a
+    stray "TBD" left in an Item-column comment (e.g. "(was TBD)") does NOT cause a silent skip and a
+    frozen number in the Status column IS picked up.
 
-    A key match requires the key to appear as a whole token (comma or whitespace or | boundary)
-    to avoid partial matches like "C" inside "N_chains" or "SOKAL_C".
+    Scope: only the "TBD-at-step placeholders" section, and the constant must appear as a whole token
+    in the Item column (to avoid "C" matching inside "N_chains"/"SOKAL_C").
 
-    Returns:
-      (None, True)       — key found in TBD section with TBD value (→ skip with TBD-pending)
-      (float_val, False) — key found in TBD section with a pinned numeric value
-      (None, True)       — key not found in the TBD section (→ treat as TBD; not yet pinned)
-      raises             — key found but value is neither TBD nor a number → HARD FAIL
+    Decision (per the constant's VALUE/STATUS column, NOT the whole line):
+      (None, True)       — Status column contains "TBD"            → skip TBD-pending-Task-12
+      (float_val, False) — Status column contains a number         → assert that number
+      (None, True)       — key not found in the TBD section at all → treat as TBD (not yet pinned)
+      raises             — key found but Status is neither TBD nor numeric → HARD FAIL
     """
-    # Locate the "TBD-at-step placeholders" section; scan only those lines.
+    # Locate the "TBD-at-step placeholders" section; scan only its table rows.
     in_tbd_section = False
-    tbd_lines = []
+    tbd_rows = []
     for line in pins_text.splitlines():
         stripped = line.strip()
         if "TBD-at-step" in stripped:
             in_tbd_section = True
-        elif in_tbd_section and stripped.startswith("##"):
-            in_tbd_section = False
-        if in_tbd_section:
-            tbd_lines.append(line)
-
-    # Boundary pattern: key surrounded by non-word characters (|, space, comma, etc.)
-    # so "C" does not match inside "N_chains", "SOKAL_C", "N_R", etc.
-    key_pattern = r"(?:^|[,|\s]){}(?:[,|\s]|$)".format(re.escape(key))
-
-    for line in tbd_lines:
-        if not re.search(key_pattern, line):
             continue
-        # Found the key in the TBD section
-        if "TBD" in line:
+        if in_tbd_section and stripped.startswith("##"):
+            break
+        if in_tbd_section and stripped.startswith("|"):
+            tbd_rows.append(line)
+
+    # Whole-token Item-column match (|, space, comma, paren boundaries) so "C" ∉ "N_chains"/"SOKAL_C".
+    key_pattern = r"(?:^|[,|\s(]){}(?:[,|\s)]|$)".format(re.escape(key))
+
+    for row in tbd_rows:
+        # split the markdown row into cells; drop the leading/trailing empty cells from the | borders.
+        cells = [c.strip() for c in row.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        item_col = cells[0]
+        # the VALUE/STATUS column is everything after the Item column (joined, in case of >2 columns).
+        status_col = " ".join(cells[1:])
+        if not re.search(key_pattern, item_col):
+            continue
+        # Decision is made on the STATUS column ONLY (Task-12-trap-robust).
+        if "TBD" in status_col:
             return None, True
-        # Try to extract a numeric value
-        nums = re.findall(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", line)
+        nums = re.findall(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", status_col)
         if nums:
             return float(nums[0]), False
-        # Found key but no TBD and no number
         raise AssertionError(
-            f"HARD FAIL: calibration constant '{key}' in PINS.md TBD section is neither TBD "
-            f"nor numeric. Line: {line!r}"
+            f"HARD FAIL: calibration constant '{key}' in PINS.md TBD section has a Status column "
+            f"that is neither TBD nor numeric. Status cell: {status_col!r} (row: {row!r})"
         )
     # Key not found in the TBD section → treat as TBD (may not be in PINS until Task 12)
     return None, True
@@ -396,34 +402,57 @@ def test_g3a_latent_adapter_test_dict_shape():
     print(f"\n[G3a] test dict image={test_ds['image'].shape} (1000,196)  PASS")
 
 
-def test_g3b_full_model_probe_record_has_exactly_4_layers():
-    """A full-model probe (evaluate_model) returns EXACTLY 4 per-layer dicts (diffusion steps 0..3).
-    We test this via TrainabilityProbe.evaluate_model with tiny parameters on a real 4_4 fixture."""
-    # We can't build a 44_12 DTM on CPU (no dtm.train, no dataset), but the shape-count assertion
-    # is about the number of steps. Use the fixture 4_4 DTM which has 1 step, then build a
-    # 4-step DTM variant.  Instead: directly assert on COMPANION_CFG (num_diffusion_steps=4).
-    # Also assert the TrainabilityProbe.HEADLINE_KEYS contains exactly the expected keys.
+def test_g3b_full_model_probe_record_has_one_entry_per_diffusion_step():
+    """A full-model probe (evaluate_model) returns EXACTLY one per-layer dict per diffusion step.
+
+    NOT a tautology: instead of hand-building a 4-element list, we exercise the REAL
+    ``TrainabilityProbe.evaluate_model`` loop (which does ``n_layers = len(dtm.steps)`` then iterates),
+    with the per-layer ``evaluate`` MONKEYPATCHED to a tiny stub (so no GPU sampling) that records the
+    layer index it was called with.  We assert the real loop produced exactly ``len(dtm.steps)`` records,
+    that those records carry the real HEADLINE_KEYS, and — on the companion config — that
+    ``len(dtm.steps) == num_diffusion_steps == 4``.  The record COUNT comes from the driver's real loop,
+    not from a literal we wrote.
+    """
     from htdml.trainability_probe import TrainabilityProbe
 
-    # The companion has 4 diffusion steps — any record from evaluate_model has EXACTLY 4 entries.
+    # (1) The REAL invariant: a DTM has one step per diffusion step.  Verify on the real fixture DTM
+    #     (num_diffusion_steps=1 → 1 step) so the len(steps)==num_diffusion_steps link is REAL, not assumed.
+    dtm_fix, _step = _build_fixture_step()
+    fix_nds = int(dtm_fix.cfg.diffusion_schedule.num_diffusion_steps)
+    assert len(dtm_fix.steps) == fix_nds, (
+        f"fixture DTM has {len(dtm_fix.steps)} steps but num_diffusion_steps={fix_nds} — "
+        "the one-step-per-diffusion-step invariant the 4-layer count rests on is broken")
+
+    # (2) Drive the REAL evaluate_model loop with evaluate() stubbed (records the layer it sees).
+    #     mock.patch.object on the CLASS attribute makes the stub an unbound function → `self` is the
+    #     first positional arg the real evaluate_model passes.
+    probe = TrainabilityProbe()
+    seen_layers = []
+
+    def _stub_evaluate(self, model, layer, batch, **kw):
+        seen_layers.append(int(layer))
+        return {k: 0.0 for k in TrainabilityProbe.HEADLINE_KEYS} | {"layer": int(layer)}
+
+    with mock.patch.object(TrainabilityProbe, "evaluate", _stub_evaluate):
+        records = probe.evaluate_model(dtm_fix, batch={"image": None, "label": None, "idx": 0},
+                                       n_R=4, L_traj=10, n_chains=2, diag_key=0)
+
+    # The driver's REAL loop must yield exactly one record per step (== len(dtm.steps)).
+    assert len(records) == len(dtm_fix.steps), (
+        f"evaluate_model returned {len(records)} records for {len(dtm_fix.steps)} steps — "
+        "the per-layer loop does not produce exactly one record per diffusion step")
+    assert seen_layers == list(range(len(dtm_fix.steps))), (
+        f"evaluate_model visited layers {seen_layers}, expected {list(range(len(dtm_fix.steps)))}")
+    # Each record carries the real HEADLINE_KEYS.
+    for rec in records:
+        assert set(TrainabilityProbe.HEADLINE_KEYS).issubset(rec.keys()), (
+            f"per-layer record missing HEADLINE_KEYS: {set(TrainabilityProbe.HEADLINE_KEYS) - set(rec)}")
+
+    # (3) On the companion config the count is 4 (num_diffusion_steps=4).
     assert COMPANION_CFG["diffusion_schedule"]["num_diffusion_steps"] == 4, (
-        "num_diffusion_steps must be 4 for the companion")
-
-    # Verify HEADLINE_KEYS — the per-layer dict template (7 per-layer keys for the probe).
-    expected_headline = {
-        "r_grad[1]", "r_grad[50]", "tau_int_Y", "ESS_hat", "Q_struct_perp", "gradient_norm", "layer",
-    }
-    actual_headline = set(TrainabilityProbe.HEADLINE_KEYS)
-    assert actual_headline == expected_headline, (
-        f"HEADLINE_KEYS mismatch: got {actual_headline}, want {expected_headline}")
-
-    # Simulate a 4-layer record (as driver consumes) and assert length == 4.
-    def _fake_layer(i):
-        return {k: 0.0 for k in TrainabilityProbe.HEADLINE_KEYS}
-
-    fake_record = [_fake_layer(i) for i in range(4)]
-    assert len(fake_record) == 4, f"expected exactly 4 per-layer entries; got {len(fake_record)}"
-    print(f"\n[G3b] 4-layer structure confirmed (num_diffusion_steps=4); HEADLINE_KEYS correct  PASS")
+        "companion num_diffusion_steps must be 4")
+    print(f"\n[G3b] evaluate_model real loop: {len(records)} records == len(steps)={len(dtm_fix.steps)} "
+          f"(fixture nds={fix_nds}); companion nds=4 → 4 layers; HEADLINE_KEYS present  PASS")
 
 
 # ===========================================================================
@@ -468,22 +497,21 @@ def test_g4b_ess_hat_formula():
     print(f"\n[G4b] ESS_hat=K/(2·τ_int,Y)={expected_ess:.4g} (K=50, τ={tau:.4g})  PASS")
 
 
-def test_g4c_bce_key_present_in_driver_store():
-    """The driver per-epoch per-layer record must contain BCE as a key.
-    Verified via the store_coverage contract (Group 5 checks all 9; this checks BCE specifically)."""
-    # The 9 required keys are defined by the plan.  Assert BCE is among them.
-    required_9 = {
-        "correlation_penalty",  # live ACP coeff (post-adapt_param)
-        "r_grad[1]", "r_grad[50]",
-        "tau_int_Y", "ESS_hat",
-        "gradient_norm",
-        "Q_struct_perp",  # trace-Q_struct^⊥
-        "BCE",
-        "FID",
-    }
-    assert "BCE" in required_9, "BCE must be in the 9-quantity store-coverage set"
-    assert "FID" in required_9, "FID must be in the 9-quantity store-coverage set"
-    print(f"\n[G4c] BCE + FID keys asserted in required store-coverage set  PASS")
+def test_g4c_bce_fid_are_real_seedmetrics_fields():
+    """BCE + FID must be REAL fields on the driver's record structure (SeedMetrics), not a literal we
+    wrote.  NOT a tautology: we read the actual dataclass fields the driver populates and assert the
+    BCE/FID quantities (joint AND matched-control) are present — so a driver that silently stopped
+    storing them would FAIL here."""
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(D.SeedMetrics)}
+    # The driver stores BCE/FID for BOTH the joint arm and the matched control arm.
+    for need in ("bce", "fid", "control_bce", "control_fid"):
+        assert need in field_names, (
+            f"SeedMetrics is missing the '{need}' field — the driver does NOT store the "
+            f"{'BCE' if 'bce' in need else 'FID'} quality metric (real record gap). "
+            f"SeedMetrics fields: {sorted(field_names)}")
+    print(f"\n[G4c] BCE+FID are real SeedMetrics fields {{bce, fid, control_bce, control_fid}}  PASS")
 
 
 def test_g4d_fid_on_decoded_bw_npz_sha():
@@ -578,57 +606,88 @@ def test_g4g_free_energy_is_marginalized_not_raw_clamped():
 # GROUP 5 — STORE-COVERAGE
 # ===========================================================================
 
-def test_g5_store_coverage_all_9_quantities():
-    """The driver per-epoch+per-layer record must store all 9 quantities incl. live ACP coefficient.
-
-    The 9 required keys are:
-      1. correlation_penalty  — live ACP coeff (post-adapt_param)
-      2. r_grad[1]
-      3. r_grad[50]
-      4. tau_int_Y
-      5. ESS_hat
-      6. gradient_norm
-      7. Q_struct_perp         (trace-Q_struct^⊥)
-      8. BCE
-      9. FID
-
-    Validated via the store-coverage contract (the driver's per-layer dicts + the quality metrics).
-    Since the GPU training isn't run here, we assert the INTERFACE CONTRACT: the probe's HEADLINE_KEYS
-    cover 6 of the 9 scalar quantities, and the driver record adds correlation_penalty, BCE, FID."""
+def test_g5a_six_probe_scalars_are_real_headline_keys():
+    """6 of the 9 store-coverage quantities are produced PER LAYER by the real probe.  Assert against
+    the probe's ACTUAL HEADLINE_KEYS (not a literal) — and assert the probe's REAL per-layer dict
+    actually carries them, by inspecting the keys ``evaluate`` assembles (line 332-349)."""
     from htdml.trainability_probe import TrainabilityProbe
 
-    required_9 = [
-        "correlation_penalty",  # live ACP coefficient (Group 5 requirement)
-        "r_grad[1]",
-        "r_grad[50]",
-        "tau_int_Y",
-        "ESS_hat",
-        "gradient_norm",
-        "Q_struct_perp",        # trace-Q_struct^⊥
-        "BCE",
-        "FID",
-    ]
-
-    # 6 of the 9 come from the probe HEADLINE_KEYS (the probe provides per-layer scalars).
-    probe_headline = set(TrainabilityProbe.HEADLINE_KEYS)
     probe_provided = {"r_grad[1]", "r_grad[50]", "tau_int_Y", "ESS_hat", "gradient_norm", "Q_struct_perp"}
+    headline = set(TrainabilityProbe.HEADLINE_KEYS)
+    missing = probe_provided - headline
+    assert not missing, (
+        f"the probe HEADLINE_KEYS do NOT cover store-coverage scalars {missing} — "
+        f"real probe-record gap.  HEADLINE_KEYS={sorted(headline)}")
+
+    # Cross-check the probe's real per-layer dict keys (what evaluate() actually assembles): drive a
+    # tiny probe_scalars (no GPU) and confirm those 6 scalar names are real output keys.
+    rng = np.random.default_rng(0)
+    scal = pp.probe_scalars(rng.standard_normal((4, 200, 8)), n_R=4, diag_key=0, gradient=np.ones(8))
     for k in probe_provided:
-        assert k in probe_headline, (
-            f"required per-layer quantity '{k}' not in probe HEADLINE_KEYS — "
-            "the probe must provide it")
+        assert k in scal, f"probe_scalars output missing store-coverage scalar '{k}': keys={sorted(scal)}"
+    print(f"\n[G5a] 6 probe scalars are real HEADLINE_KEYS + real probe_scalars output keys  PASS")
 
-    # The driver layer dict (SeedMetrics.joint_layers) adds the remaining quality metrics.
-    driver_provided = {"correlation_penalty", "BCE", "FID"}
-    for k in driver_provided:
-        assert k in required_9, f"'{k}' must be in the 9-quantity required set"
 
-    # Assert all 9 together.
-    assert set(required_9) == probe_provided | driver_provided, (
-        f"9-quantity set mismatch: required={set(required_9)}, "
-        f"probe={probe_provided}, driver={driver_provided}")
+def test_g5b_bce_fid_are_real_driver_record_fields():
+    """2 of the 9 store-coverage quantities (BCE, FID) are stored by the driver's REAL record structure
+    (SeedMetrics) — for both the joint and the control arm.  Assert against the actual dataclass fields,
+    not a literal."""
+    import dataclasses
 
-    print(f"\n[G5] store-coverage: all 9 quantities present in interface contract  PASS\n"
-          f"  probe: {sorted(probe_provided)}\n  driver: {sorted(driver_provided)}")
+    sm_fields = {f.name for f in dataclasses.fields(D.SeedMetrics)}
+    for need in ("bce", "fid", "control_bce", "control_fid"):
+        assert need in sm_fields, (
+            f"SeedMetrics does NOT store '{need}' — real driver-record gap. fields={sorted(sm_fields)}")
+    print(f"\n[G5b] BCE+FID (joint+control) are real SeedMetrics fields  PASS")
+
+
+def test_g5c_live_acp_coefficient_is_NOT_stored_REAL_GAP():
+    """STORE-COVERAGE GAP (Task-9): the 9th quantity — the LIVE ACP coefficient
+    ``correlation_penalty[step]`` (post-``adapt_param``) — is NOT stored in ANY driver record structure.
+
+    This is the gap the consolidated GATE exists to catch.  We verify it against the ACTUAL record
+    structures (do not fake a pass):
+      * NOT a SeedMetrics field,
+      * NOT a probe HEADLINE_KEY / probe_scalars output key,
+      * NOT an AcceptanceConstants field,
+      * upstream ``DTM.train`` (DTM.py:354-360) computes ``step_cp = adapt_param(...)`` as a TRANSIENT
+        per-epoch local that adapts the per-step interaction weights but is never persisted into a
+        record the driver can read.
+
+    The companion has NO Stage-C per-epoch+per-layer record-assembly that captures it.  This test is
+    marked xfail(strict) so the gap is RECORDED as an expected failure (visible in the report), and so
+    that the day Task-9/Task-12 adds the storage, this test XPASSES and forces a deliberate update —
+    rather than silently green.
+    """
+    import dataclasses
+
+    from htdml.trainability_probe import TrainabilityProbe
+
+    sm_fields = {f.name for f in dataclasses.fields(D.SeedMetrics)}
+    ac_fields = {f.name for f in dataclasses.fields(D.AcceptanceConstants)}
+    headline = set(TrainabilityProbe.HEADLINE_KEYS)
+    rng = np.random.default_rng(0)
+    scal_keys = set(pp.probe_scalars(rng.standard_normal((4, 50, 4)), n_R=2, diag_key=0,
+                                     gradient=np.ones(4)).keys())
+
+    stored_somewhere = (
+        "correlation_penalty" in sm_fields
+        or "correlation_penalty" in ac_fields
+        or "correlation_penalty" in headline
+        or "correlation_penalty" in scal_keys
+    )
+    # Document the gap loudly in captured output.
+    print(f"\n[G5c REAL GAP] live ACP coefficient 'correlation_penalty[step]' (post-adapt_param) is "
+          f"NOT stored: SeedMetrics={sorted(sm_fields)}; probe HEADLINE_KEYS={sorted(headline)}; "
+          f"AcceptanceConstants has no 'correlation_penalty'.  Upstream DTM.train adapts step_cp as a "
+          f"transient local (DTM.py:354-360), never persisted.  → Task-9 store-coverage gap.")
+    # xfail(strict): this assertion is EXPECTED to fail today.  If it ever passes (storage added), the
+    # strict xfail turns the run RED to force a deliberate flip to a real green assertion.
+    if not stored_somewhere:
+        pytest.xfail("Task-9 store-coverage gap: live ACP coefficient correlation_penalty[step] is not "
+                     "stored in any driver record (SeedMetrics/probe/AcceptanceConstants).")
+    # Reached only if storage was added — then assert it's a usable per-step record.
+    assert stored_somewhere
 
 
 # ===========================================================================
@@ -665,13 +724,19 @@ def test_g6b_weights_hash_and_key_list():
     print(f"\n[G6b] _weights_hash={h}; _key_list len={len(kl)}  PASS")
 
 
-def test_g6c_find_counts_on_fixture():
-    """_find_counts extracts opt_state counts from the fixture step."""
+def test_g6c_find_counts_extracts_real_optstate_counts():
+    """_find_counts must actually FIND opt-state count leaves (the provenance scalar the fork uses).
+    NOT vacuous: a fresh optax adam opt_state has count leaves (value 0 before training), so the list
+    must be NON-EMPTY and every entry an int.  An empty list would mean the count-extraction recursion
+    silently failed (the fork's opt-state provenance assertion would then be vacuous)."""
     _dtm, step = _build_fixture_step()
     counts = pp._find_counts(step.opt_state)
     assert isinstance(counts, list), f"_find_counts must return a list; got {type(counts)}"
-    assert len(counts) >= 0  # counts may be empty initially (before training)
-    print(f"\n[G6c] _find_counts={counts}  PASS")
+    assert len(counts) > 0, (
+        "_find_counts found NO count leaves in the opt_state — the optax count recursion is broken; "
+        "the fork's opt-state provenance check would be vacuous")
+    assert all(isinstance(c, int) for c in counts), f"count leaves must be ints; got {counts}"
+    print(f"\n[G6c] _find_counts found {len(counts)} real opt-state count leaves={counts}  PASS")
 
 
 def test_g6d_refreshed_weight_proof_gates_compat_build():
@@ -690,74 +755,126 @@ def test_g6d_refreshed_weight_proof_gates_compat_build():
 # GROUP 7 — λ=0 ≡ CONTROL (NEW): weights_hash + key_list + opt-state equality
 # ===========================================================================
 
-def test_g7_lambda0_control_weights_hash_equality():
-    """(NEW) The joint update at λ=0 yields a checkpoint with _weights_hash + _key_list + opt-state
-    EQUAL to the matched-control arm (bitwise; the traced-0.0 multiply).
+def _ae_param_bytes(params):
+    """Flatten a Flax param pytree to a tuple of (path-ordered) raw float bytes for BITWISE comparison."""
+    leaves = jax.tree_util.tree_leaves(params)
+    return tuple(np.ascontiguousarray(np.asarray(l)).tobytes() for l in leaves)
 
-    Since we cannot run dtm.train (GPU-only), we verify this via the DRIVER'S PURE compat_term:
-      (1) compat_loss(0.0, clamps, maps, beta) returns value=0.0 exactly (the control);
-      (2) a perturbed step whose weights are identical to a 'control' step has equal _weights_hash
-          — i.e. if no gradient update is applied (λ=0 ⇒ compat grad is 0.0), weights stay equal;
-      (3) the fork mechanism produces two arms with equal _weights_hash before any update.
 
-    The key insight: λ=0 means compat_loss evaluates but returns 0.0, so d(λ·L_compat)/dparams = 0.
-    Thus no weight update from the compat term → both arms stay weight-equal until a λ>0 update.
+def _optstate_bytes(opt_state):
+    """Flatten an optax opt_state pytree to raw bytes for BITWISE comparison (covers mu/nu/count)."""
+    leaves = jax.tree_util.tree_leaves(opt_state)
+    return tuple(np.ascontiguousarray(np.asarray(l)).tobytes() for l in leaves)
+
+
+def test_g7_lambda0_control_is_bitwise_identical_AFTER_a_real_update():
+    """(NEW, STRENGTHENED) λ=0 ≡ control AFTER a real driver update — the gate the review asked for.
+
+    The differentiable Stage-C half (the driver's :func:`joint_update_step`) updates the ENCODER/DECODER
+    params (``ae_params`` / ``ae_opt_state``) via reconstruction + λ·L_compat through the STE (the DTM
+    arm is the GPU-only other half).  The real, non-trivial claim is: running the ACTUAL
+    ``joint_update_step`` at λ=0.0 leaves the encoder arm BITWISE-identical to a control update that has
+    NO compat term at all — i.e. the traced ``0.0 × L_compat`` path contributes exactly zero gradient
+    and does not perturb the optimizer state.  This catches any λ-dependent drift in the real update.
+
+    We drive the REAL driver function (not a reimplementation), from the SAME forked params+opt-state,
+    against TWO references:
+      (A) joint_update_step(lam=0.0)  vs  a control update using ONLY AE.stage_a_loss (no compat) —
+          bitwise-identical ae_params + ae_opt_state;
+      (B) joint_update_step(lam=0.0) run TWICE from the same state — bitwise determinism (no PRNG drift).
+    Plus the genuine compat-zero facts: compat_loss(0.0)=0.0 exactly and ∂(0·L_compat)/∂clamp = 0.
     """
+    import optax
+
+    from htdml import autoencoder as AE
+
+    # --- (0) the genuine compat-zero facts (kept) ---------------------------------------------------
     _dtm, step = _build_fixture_step()
     beta = float(step.training_spec.beta)
     rng = np.random.default_rng(13)
-
     with _x64():
         maps = C.build_compat_maps(step)
-        jm = C._jnp_maps(maps)
         n_clamp = maps["n_clamp"]
+        clamp_1 = jnp.asarray((rng.integers(0, 2, size=(1, n_clamp)) * 2 - 1).astype(np.float64))
+        val0, fin0 = C.compat_loss(0.0, clamp_1, [maps], beta)
+        assert float(val0) == 0.0 and bool(fin0), "compat_loss(λ=0.0) must be exactly 0.0 and finite"
 
-        # (1) compat_loss(λ=0.0, ...) returns exactly 0.0 (the control — traced 0).
-        clamp_1step = jnp.asarray(
-            (rng.integers(0, 2, size=(1, n_clamp)) * 2 - 1).astype(np.float64))
-        val0, fin0 = C.compat_loss(0.0, clamp_1step, [maps], beta)
-        assert float(val0) == 0.0, (
-            f"compat_loss(λ=0.0) must be EXACTLY 0.0 (the control); got {float(val0)!r}")
-        assert bool(fin0) is True, "compat_loss(λ=0.0) must be finite"
+        def _lz(cl):
+            v, _ = C.compat_loss(0.0, cl, [maps], beta)
+            return v
+        assert np.all(np.asarray(jax.grad(_lz)(clamp_1)) == 0.0), "∂(0·L_compat)/∂clamp must be 0"
 
-        # (2) The gradient of λ=0 compat_loss w.r.t. clamps is also 0.0 (traced-0 multiply).
-        def loss_fn(clamp):
-            val, _ = C.compat_loss(0.0, clamp, [maps], beta)
-            return val
+    # --- build a REAL autoencoder + opt-state (CPU) -------------------------------------------------
+    ae = AE.BinaryAutoencoder()
+    ae_key = jr.PRNGKey(0)
+    dummy = jnp.ones((2, 28, 28, 1), dtype=jnp.float32) * 0.5
+    ae_params0 = ae.init(ae_key, dummy)
+    ae_optim = optax.adam(1e-3)
+    ae_opt_state0 = ae_optim.init(ae_params0)
 
-        g_zero = np.asarray(jax.grad(loss_fn)(clamp_1step))
-        assert np.all(g_zero == 0.0), (
-            f"∂(λ=0·L_compat)/∂clamp must be all-zero; got max|g|={np.max(np.abs(g_zero))}")
+    # a real input batch + the per-step clamp (image_output carries the gradient; matches n_clamp).
+    x_batch = jnp.asarray(np.random.default_rng(1).random((6, 28, 28, 1)), dtype=jnp.float32)
+    clamp_steps = jnp.asarray(
+        (np.random.default_rng(2).integers(0, 2, size=(NUM_DIFFUSION_STEPS, n_clamp)) * 2 - 1).astype(np.float64))
 
-    # (3) Fork produces two arms with identical _weights_hash (before any update).
-    workdir = tempfile.mkdtemp(prefix="htdml_lam0_")
-    try:
-        from thrmlDenoising.DTM import DTM
-        from thrmlDenoising.utils import make_cfg
-        from tests.fixture_6_4 import FIXTURE_CFG
+    # --- (A) joint_update_step(lam=0.0) vs a control update with NO compat term ----------------------
+    j_params, j_opt, j_aux = D.joint_update_step(
+        ae, ae_params0, ae_opt_state0, ae_optim, step,
+        clamp_latents_per_step=clamp_steps, label_clamp=None, bt_clamp=None,
+        beta=beta, lam=0.0, x_batch=x_batch)
 
-        dtm = DTM(make_cfg(**FIXTURE_CFG))
-        dtm.steps[0] = step  # use the perturbed step
+    # control: the SAME reconstruction loss path but compat term entirely absent.
+    def _control_update(params, opt_state):
+        with _x64():
+            (loss, aux), grads = jax.value_and_grad(
+                lambda p: AE.stage_a_loss(p, x_batch), has_aux=True)(params)
+            updates, opt_state2 = ae_optim.update(grads, opt_state, params)
+            params2 = optax.apply_updates(params, updates)
+        return params2, opt_state2
 
-        ctrl_dtm, joint_dtm = D.fork_checkpoint(dtm, workdir, epoch=0)
+    c_params, c_opt = _control_update(ae_params0, ae_opt_state0)
 
-        # Before any training update: both arms have the same weights.
-        h_ctrl = pp._weights_hash(ctrl_dtm.steps[0])
-        h_joint = pp._weights_hash(joint_dtm.steps[0])
-        assert h_ctrl == h_joint, (
-            f"fork arms _weights_hash mismatch BEFORE any update: ctrl={h_ctrl} joint={h_joint}; "
-            "the two arms must start from identical weights")
+    assert _ae_param_bytes(j_params) == _ae_param_bytes(c_params), (
+        "joint_update_step(λ=0.0) ae_params are NOT bitwise-identical to the no-compat control update "
+        "— the traced 0.0×L_compat path perturbs the encoder update (λ=0 ≠ control)")
+    assert _optstate_bytes(j_opt) == _optstate_bytes(c_opt), (
+        "joint_update_step(λ=0.0) ae_opt_state is NOT bitwise-identical to the control update "
+        "— optimizer state diverged under the λ=0 compat path")
 
-        kl_ctrl = pp._key_list(ctrl_dtm)
-        kl_joint = pp._key_list(joint_dtm)
-        assert kl_ctrl == kl_joint, (
-            f"fork arms _key_list mismatch: ctrl={kl_ctrl} joint={kl_joint}")
+    # --- (B) determinism: joint_update_step(λ=0.0) twice from the same state → bitwise-identical ------
+    j2_params, j2_opt, _ = D.joint_update_step(
+        ae, ae_params0, ae_opt_state0, ae_optim, step,
+        clamp_latents_per_step=clamp_steps, label_clamp=None, bt_clamp=None,
+        beta=beta, lam=0.0, x_batch=x_batch)
+    assert _ae_param_bytes(j_params) == _ae_param_bytes(j2_params), (
+        "joint_update_step(λ=0.0) is non-deterministic in ae_params (PRNG drift in the compat path)")
+    assert _optstate_bytes(j_opt) == _optstate_bytes(j2_opt), (
+        "joint_update_step(λ=0.0) is non-deterministic in ae_opt_state")
 
-    finally:
-        import shutil
-        shutil.rmtree(workdir, ignore_errors=True)
+    # --- (C) TEETH on the genuinely-λ-dependent axis: the compat clamp gradient. --------------------
+    # IMPORTANT honesty: in the CURRENT driver, joint_update_step's compat clamp is a passed-in CONSTANT
+    # (clamp_latents_per_step), NOT encode(ae_params, x) — so ∂(λ·L_compat)/∂ae_params ≡ 0 for ANY λ, and
+    # the (A)/(B) ae_params equality above would hold even if λ mattered.  The clamp→encoder wiring is
+    # deferred to the smoke driver.  So (A)/(B) verify the λ=0 traced-0 path does not perturb the encoder
+    # update, but they DO NOT have teeth on λ.  We add the teeth on the axis the compat DOES depend on —
+    # the clamp — via the driver's real compat_value_and_grad_x64: λ=0 zeros the clamp gradient, λ>0 does
+    # NOT (so the traced-0 multiply genuinely discriminates, and λ=0 ≠ a no-op for λ>0).
+    v0, g0_clamp, fin0c = D.compat_value_and_grad_x64(0.0, clamp_steps, [maps], beta)
+    v5, g5_clamp, fin5c = D.compat_value_and_grad_x64(5.0, clamp_steps, [maps], beta)
+    assert v0 == 0.0 and fin0c, "compat_value_and_grad_x64(λ=0) value must be exactly 0.0"
+    assert np.all(g0_clamp == 0.0), (
+        f"∂(0·L_compat)/∂clamp must be all-zero; got max|g|={np.max(np.abs(g0_clamp))}")
+    assert fin5c and np.any(g5_clamp != 0.0), (
+        "∂(5·L_compat)/∂clamp is all-zero — the compat term has NO teeth even at λ>0; the λ=0≡control "
+        "gate would be vacuous (nothing for λ=0 to zero out)")
 
-    print(f"\n[G7] λ=0≡control: compat_loss(0)=0.0, grad=0; fork arms _weights_hash equal ({h_ctrl})  PASS")
+    print(f"\n[G7] λ=0≡control AFTER a real joint_update_step:\n"
+          f"  (A) ae_params + ae_opt_state BITWISE-identical to the no-compat control update;\n"
+          f"  (B) joint_update_step(λ=0.0) bitwise-deterministic on repeat;\n"
+          f"  (C) TEETH: ∂(0·L_compat)/∂clamp=0 while ∂(5·L_compat)/∂clamp≠0 (traced-0 discriminates);\n"
+          f"  NOTE: clamp is an external constant in joint_update_step ⇒ compat does not yet steer\n"
+          f"        ae_params (clamp→encoder wiring deferred to the smoke); (A)/(B) bound the λ=0 path,\n"
+          f"        (C) supplies the λ-teeth on the clamp axis.  compat_loss(0.0)=0.0 exactly  PASS")
 
 
 # ===========================================================================

@@ -20,6 +20,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # conftest.py at repo root is auto-discovered; it installs the vendored path isolation.
-# Collect the enumerable arbiter `fixture_6_4.py` (Task 4) in addition to the default test_*.py so a
-# bare `pytest` (CI) runs it too — its functions are still `test_*` (the default python_functions).
-python_files = ["test_*.py", "fixture_6_4.py"]
+# Collect the enumerable arbiter `fixture_6_4.py` (Task 4) AND the consolidated zero-compute GATE
+# `zero_compute_checks.py` (Task 11) in addition to the default test_*.py, so a bare `pytest` (CI) runs
+# them too — their functions are still `test_*` (the default python_functions).
+python_files = ["test_*.py", "fixture_6_4.py", "zero_compute_checks.py"]

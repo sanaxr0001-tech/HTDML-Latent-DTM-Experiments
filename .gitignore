@@ -1,0 +1,16 @@
+# Python bytecode / caches
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Build scratch — keep on disk, not in git
+.superpowers/
+
+# Dataset and model caches (populated at Task 7+)
+data/
+cache/
+
+# Vendored FID precomputed stats — ignore all EXCEPT the sha-pinned BW Fashion-MNIST ref
+vendor/dtm-replication/thrmlDenoising/fid/precomputed_stats/*
+!vendor/dtm-replication/thrmlDenoising/fid/precomputed_stats/bw_fashion_mnist_train.npz

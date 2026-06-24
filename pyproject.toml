@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "htdml"
+version = "0.1.0"
+description = "Guarded joint encoder-binary-latent-DTM-decoder feasibility study"
+requires-python = ">=3.10"
+
+# Runtime deps are NOT pinned/installed here — the conda base env provides them.
+# thrml 0.1.3 is provided via vendor/thrml_overlay/ at runtime (bootstrap_paths()).
+# Listed below for documentation only:
+#   jax==0.10.2, optax, numpy, thrml==0.1.3 (overlay)
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# conftest.py at repo root is auto-discovered; it installs the vendored path isolation.

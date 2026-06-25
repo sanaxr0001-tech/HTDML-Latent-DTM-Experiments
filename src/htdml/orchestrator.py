@@ -74,3 +74,24 @@ def build_seed_metrics(block: BlockResult, *, cal_all_stable: bool = True,
         control_bce=block.bce_control, control_fid=block.fid_control,
         gpu_h=gpu_h, budget_wall=budget_wall, cal_all_stable=cal_all_stable,
     )
+
+
+def reconfirm_l_traj(ops, dtm, clock, const) -> ReconfirmResult:
+    cal = ops.calibrate_tau(dtm, clock)
+    tau_layers = [float(t) for t in cal["tau_hat_layers"]]
+    base = {"tau_hat_layers": tau_layers, "L_traj_frozen": const.L_traj}
+    if not cal.get("cal_stable", True):
+        base.update(cal_stable=False, failed_layer=cal.get("failed_layer"),
+                    tau_hat_worst=(max(tau_layers) if tau_layers else None),
+                    L_traj_adequate=None, adjusted=False, affordable=None)
+        return ReconfirmResult("cal_fail", None, base)
+    tau_worst = max(tau_layers)
+    freeze = freeze_from_measurement(tau_worst)        # UNCAPPED — never pass l_traj_cap
+    L_adeq = int(freeze["L_traj"])
+    base.update(cal_stable=True, failed_layer=None, tau_hat_worst=tau_worst,
+                L_traj_adequate=L_adeq, adjusted=bool(L_adeq > const.L_traj))
+    if clock.would_exceed(ops.estimate_probe_cost(L_adeq)):
+        base["affordable"] = False
+        return ReconfirmResult("budget_wall", L_adeq, base)
+    base["affordable"] = True
+    return ReconfirmResult("proceed", L_adeq, base)

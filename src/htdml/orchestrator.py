@@ -95,3 +95,28 @@ def reconfirm_l_traj(ops, dtm, clock, const) -> ReconfirmResult:
         return ReconfirmResult("budget_wall", L_adeq, base)
     base["affordable"] = True
     return ReconfirmResult("proceed", L_adeq, base)
+
+
+def run_reject_loop(ops, joint, control, clock, acc, const, L_adeq) -> Tuple[BlockResult, List[dict]]:
+    rstate = RejectState(encoder_lr=const.lr0)
+    last_accepted: Optional[BlockResult] = None
+    reject_log: List[dict] = []
+    epochs_done = 0
+    while (not rstate.stop) and epochs_done < const.max_joint_epochs and not clock.over_cap():
+        block = ops.epoch_block_pair(joint, control, rstate.encoder_lr, L_adeq, clock)
+        epochs_done += const.epochs_per_block
+        dec = reject_gate(block.joint_layers, block.control_layers, acc)
+        if dec.reject:
+            ops.rollback_pair(joint, control)
+            rstate = apply_rejection(rstate, max_consecutive=const.max_consecutive)
+            reject_log.append({"epoch": epochs_done, "reject": True, "reason": dec.reason,
+                               "encoder_lr": rstate.encoder_lr})
+        else:
+            ops.commit_pair(joint, control)
+            last_accepted = block
+            rstate = apply_acceptance(rstate)
+            reject_log.append({"epoch": epochs_done, "reject": False, "encoder_lr": rstate.encoder_lr})
+        clock.checkpoint(f"joint_epoch_{epochs_done}", raise_on_over=True)
+    if last_accepted is None:
+        last_accepted = ops.probe_committed_pair(joint, control, L_adeq, clock)
+    return last_accepted, reject_log

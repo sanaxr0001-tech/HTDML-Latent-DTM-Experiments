@@ -152,3 +152,34 @@ def test_seed_budgetwall_raised_mid_loop_is_caught():
     ops = _SeedOps(cal={"tau_hat_layers": [1, 1, 1, 1], "cal_stable": True, "failed_layer": None}, raise_on_block=True)
     sr = O.run_one_seed(ops, 1, _Clock(), _acc(), O.FrozenConstants(), "/tmp/x")
     assert sr.token == "BUDGET-WALL"
+
+
+# ---------------------------------------------------------------------------
+# Task 5: run_stage_c
+# ---------------------------------------------------------------------------
+import json
+
+def test_run_both_seeds_route_run():
+    cal = {"tau_hat_layers": [1, 1.4, 0.9, 1.1], "cal_stable": True, "failed_layer": None}
+    ops = _SeedOps(cal=cal, blocks=[_good_block()])
+    res = O.run_stage_c(ops, seeds=[1, 2], acc=_acc(), const=O.FrozenConstants(max_joint_epochs=2),
+                        workdir="/tmp/x", provenance={"git": "deadbeef"}, clock=_Clock())
+    assert res["outcome"] in O.TOKENS_ALL and len(res["seeds"]) == 2
+    assert json.loads(json.dumps(res))["provenance"]["git"] == "deadbeef"   # JSON round-trips
+
+def test_run_seed1_budget_wall_skips_seed2():
+    cal = {"tau_hat_layers": [1, 1, 1, 120], "cal_stable": True, "failed_layer": None}
+    calls = {"n": 0}
+    class _CountOps(_SeedOps):
+        def pretrain_encoder(self, seed, clk): calls["n"] += 1; return super().pretrain_encoder(seed, clk)
+    ops = _CountOps(cal=cal, est=99999)
+    res = O.run_stage_c(ops, seeds=[1, 2], acc=_acc(), const=O.FrozenConstants(),
+                        workdir="/tmp/x", provenance={}, clock=_Clock(exceed=True))
+    assert res["outcome"] == "BUDGET-WALL" and len(res["seeds"]) == 1 and calls["n"] == 1   # seed 2 never started
+
+def test_run_is_deterministic():
+    cal = {"tau_hat_layers": [1, 1.4, 0.9, 1.1], "cal_stable": True, "failed_layer": None}
+    mk = lambda: O.run_stage_c(_SeedOps(cal=cal, blocks=[_good_block()]), seeds=[1, 2], acc=_acc(),
+                               const=O.FrozenConstants(max_joint_epochs=2), workdir="/tmp/x",
+                               provenance={}, clock=_Clock())
+    assert mk()["outcome"] == mk()["outcome"]

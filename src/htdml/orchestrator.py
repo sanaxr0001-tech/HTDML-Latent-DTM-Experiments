@@ -146,3 +146,49 @@ def run_one_seed(ops, seed, clock, acc, const, workdir) -> SeedResult:
     except BudgetWall:
         m = _budget_wall_metrics(clock)
         return SeedResult(seed, route_seed(m, acc), m, {"affordable": False}, [])
+
+
+TOKENS_ALL = ("HTDML-MARGIN-POSITIVE", "HTDML-MARGIN-NEGATIVE", "QUALITY-LOSS",
+              "PLATEAU-UNRESOLVED", "Q-CALIBRATION-FAIL", "BUDGET-WALL")
+
+def _layers_json(layers):
+    keys = ("Q_struct_perp", "tau_int_Y", "ESS_hat", "r_grad[50]", "gradient_norm", "L_traj", "tau_hat", "cal_stable")
+    return [{k: ly.get(k) for k in keys} for ly in layers]
+
+def assemble_result(run_token, seed_results, const, provenance, clock) -> dict:
+    return {
+        "outcome": run_token,
+        "constants": {"ESS_min": const.ESS_min, "C": const.C, "L_traj": const.L_traj,
+                      "N_chains": const.N_chains, "N_R": const.N_R, "GPU_H_CAP": const.GPU_H_CAP,
+                      "lambda_joint": const.lambda_joint},
+        "provenance": dict(provenance),
+        "budget": {"gpu_h_total": float(clock.elapsed() / 3600.0),
+                   "budget_wall": any(sr.token == "BUDGET-WALL" for sr in seed_results)},
+        "seeds": [{"seed": sr.seed, "token": sr.token,
+                   "bce_joint": sr.metrics.bce, "fid_joint": sr.metrics.fid,
+                   "bce_control": sr.metrics.control_bce, "fid_control": sr.metrics.control_fid,
+                   "joint_layers": _layers_json(sr.metrics.joint_layers),
+                   "control_layers": _layers_json(sr.metrics.control_layers),
+                   "l_traj_reconfirm": sr.reconfirm, "reject_log": sr.reject_log}
+                  for sr in seed_results],
+        "two_seed": {"both_pass": run_token == "HTDML-MARGIN-POSITIVE",
+                     "run_token": run_token},
+    }
+
+def run_stage_c(ops, *, seeds, acc, const, workdir, provenance, clock=None) -> dict:
+    clock = clock or WallClock(cap_seconds=const.GPU_H_CAP * 3600.0)
+    seed_results: List[SeedResult] = []
+    for seed in seeds:
+        sr = run_one_seed(ops, seed, clock, acc, const, os.path.join(workdir, f"seed{seed}"))
+        seed_results.append(sr)
+        if sr.token == "BUDGET-WALL":            # C6: shared budget exhausted — do not start the next seed
+            break
+    if any(sr.token == "BUDGET-WALL" for sr in seed_results):
+        run_token = "BUDGET-WALL"
+    elif len(seeds) == 1:                         # smoke / single-seed: report the seed token, no aggregation
+        run_token = seed_results[0].token
+    elif len(seed_results) < 2:                   # defensive: broke early without a budget-wall token
+        run_token = "BUDGET-WALL"
+    else:
+        run_token = route_run(seed_results[0].metrics, seed_results[1].metrics, acc)
+    return assemble_result(run_token, seed_results, const, provenance, clock)

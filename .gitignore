@@ -14,3 +14,6 @@ cache/
 # Vendored FID precomputed stats — ignore all EXCEPT the sha-pinned BW Fashion-MNIST ref
 vendor/dtm-replication/thrmlDenoising/fid/precomputed_stats/*
 !vendor/dtm-replication/thrmlDenoising/fid/precomputed_stats/bw_fashion_mnist_train.npz
+
+# Smoke-mode run artifact (spec §6 — gitignored, not the full-run verdict json)
+run_stage_c_smoke.json

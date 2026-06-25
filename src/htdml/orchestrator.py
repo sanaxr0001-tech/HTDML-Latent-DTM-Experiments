@@ -127,6 +127,7 @@ def _budget_wall_metrics(clock) -> SeedMetrics:
                        control_bce=0.0, control_fid=0.0, gpu_h=clock.elapsed() / 3600.0,
                        budget_wall=True, cal_all_stable=True)
 
+
 def run_one_seed(ops, seed, clock, acc, const, workdir) -> SeedResult:
     try:
         enc = ops.pretrain_encoder(seed, clock); clock.checkpoint(f"seed{seed}_stageA", raise_on_over=True)

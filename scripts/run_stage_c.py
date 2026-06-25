@@ -75,7 +75,8 @@ def main(env=None, outdir=None):
     clock = WallClock(cap_seconds=const.GPU_H_CAP * 3600.0)
     ops = RealOps(const, smoke=(mode == "smoke"))
     result = O.run_stage_c(ops, seeds=seeds, acc=AcceptanceConstants(
-        ESS_min=const.ESS_min, C=const.C, L_traj=const.L_traj, N_chains=const.N_chains, N_R=const.N_R),
+        ESS_min=const.ESS_min, C=const.C, L_traj=const.L_traj, N_chains=const.N_chains, N_R=const.N_R,
+        GPU_H_CAP=const.GPU_H_CAP),
         const=const, workdir=os.path.join(outdir, "work"), provenance=build_provenance(), clock=clock)
     return write_outputs(result, outdir, mode=mode)
 

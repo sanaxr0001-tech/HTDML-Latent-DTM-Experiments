@@ -15,5 +15,8 @@ cache/
 vendor/dtm-replication/thrmlDenoising/fid/precomputed_stats/*
 !vendor/dtm-replication/thrmlDenoising/fid/precomputed_stats/bw_fashion_mnist_train.npz
 
-# Smoke-mode run artifact (spec §6 — gitignored, not the full-run verdict json)
+# Run outputs (smoke + full): JSON verdicts, report.md, and the fork-checkpoint work dir.  Generated
+# artifacts — produced/transferred/reported on-box, not version-controlled here (git add -f a verdict
+# if one ever needs committing).  (spec §6: the smoke json in particular is gitignored.)
+results/
 run_stage_c_smoke.json

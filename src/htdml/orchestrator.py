@@ -120,3 +120,29 @@ def run_reject_loop(ops, joint, control, clock, acc, const, L_adeq) -> Tuple[Blo
     if last_accepted is None:
         last_accepted = ops.probe_committed_pair(joint, control, L_adeq, clock)
     return last_accepted, reject_log
+
+
+def _budget_wall_metrics(clock) -> SeedMetrics:
+    return SeedMetrics(joint_layers=[], control_layers=[], bce=float("inf"), fid=float("inf"),
+                       control_bce=0.0, control_fid=0.0, gpu_h=clock.elapsed() / 3600.0,
+                       budget_wall=True, cal_all_stable=True)
+
+def run_one_seed(ops, seed, clock, acc, const, workdir) -> SeedResult:
+    try:
+        enc = ops.pretrain_encoder(seed, clock); clock.checkpoint(f"seed{seed}_stageA", raise_on_over=True)
+        dtm = ops.train_latent_dtm(enc, seed, clock); clock.checkpoint(f"seed{seed}_stageB", raise_on_over=True)
+        rc = reconfirm_l_traj(ops, dtm, clock, const)
+        if rc.status == "cal_fail":
+            m = build_seed_metrics(BlockResult([], [], float("inf"), float("inf"), 0.0, 0.0),
+                                   cal_all_stable=False, gpu_h=clock.elapsed() / 3600.0)
+            return SeedResult(seed, route_seed(m, acc), m, rc.record, [])
+        if rc.status == "budget_wall":
+            m = _budget_wall_metrics(clock)
+            return SeedResult(seed, route_seed(m, acc), m, rc.record, [])
+        control, joint = ops.fork(dtm, workdir)
+        block, log = run_reject_loop(ops, joint, control, clock, acc, const, rc.L_adeq)
+        m = build_seed_metrics(block, cal_all_stable=True, gpu_h=clock.elapsed() / 3600.0)
+        return SeedResult(seed, route_seed(m, acc), m, rc.record, log)
+    except BudgetWall:
+        m = _budget_wall_metrics(clock)
+        return SeedResult(seed, route_seed(m, acc), m, {"affordable": False}, [])

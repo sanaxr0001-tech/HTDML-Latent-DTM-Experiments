@@ -111,3 +111,44 @@ def test_reject_loop_no_accept_uses_committed_baseline():
     block, log = O.run_reject_loop(ops, object(), object(), _Clock(), _acc(), const, 400)
     # block is the probe_committed_pair baseline (joint==control), never the rolled-back candidate:
     assert block.joint_layers[0]["Q_struct_perp"] == block.control_layers[0]["Q_struct_perp"]
+
+
+# ---------------------------------------------------------------------------
+# Task 4: run_one_seed
+# ---------------------------------------------------------------------------
+class _SeedOps(_Ops):
+    def __init__(self, *, cal, blocks=None, est=10.0, raise_on_block=False):
+        super().__init__(); self._cal = cal; self._blocks = list(blocks or [_good_block()])
+        self._est = est; self._raise = raise_on_block; self.forked = False
+    def pretrain_encoder(self, seed, clk): return ("enc", seed)
+    def train_latent_dtm(self, enc, seed, clk): return ("dtm", seed)
+    def calibrate_tau(self, dtm, clk): return self._cal
+    def estimate_probe_cost(self, L): return self._est
+    def fork(self, dtm, wd): self.forked = True; return ("control", "joint")
+    def epoch_block_pair(self, j, c, lr, L, clk):
+        if self._raise: from scripts.calib_logic import BudgetWall; raise BudgetWall("over")
+        return self._blocks.pop(0) if self._blocks else _good_block()
+    def probe_committed_pair(self, j, c, L, clk): return _good_block()
+    def commit_pair(self, j, c): pass
+    def rollback_pair(self, j, c): pass
+
+def test_seed_cal_fail_skips_stage_c():
+    ops = _SeedOps(cal={"tau_hat_layers": [1, 1, 1, 99], "cal_stable": False, "failed_layer": 3})
+    sr = O.run_one_seed(ops, 1, _Clock(), _acc(), O.FrozenConstants(), "/tmp/x")
+    assert sr.token == "Q-CALIBRATION-FAIL" and ops.forked is False    # never forked / entered Stage C
+
+def test_seed_budget_wall_on_reconfirm():
+    ops = _SeedOps(cal={"tau_hat_layers": [1, 1, 1, 120], "cal_stable": True, "failed_layer": None}, est=99999)
+    sr = O.run_one_seed(ops, 1, _Clock(exceed=True), _acc(), O.FrozenConstants(), "/tmp/x")
+    assert sr.token == "BUDGET-WALL" and ops.forked is False
+
+def test_seed_happy_path_positive_token():
+    ops = _SeedOps(cal={"tau_hat_layers": [1, 1.4, 0.9, 1.1], "cal_stable": True, "failed_layer": None},
+                   blocks=[_good_block()])
+    sr = O.run_one_seed(ops, 1, _Clock(), _acc(), O.FrozenConstants(max_joint_epochs=2), "/tmp/x")
+    assert sr.token in ("HTDML-MARGIN-POSITIVE", "HTDML-MARGIN-NEGATIVE") and ops.forked is True
+
+def test_seed_budgetwall_raised_mid_loop_is_caught():
+    ops = _SeedOps(cal={"tau_hat_layers": [1, 1, 1, 1], "cal_stable": True, "failed_layer": None}, raise_on_block=True)
+    sr = O.run_one_seed(ops, 1, _Clock(), _acc(), O.FrozenConstants(), "/tmp/x")
+    assert sr.token == "BUDGET-WALL"

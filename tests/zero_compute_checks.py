@@ -641,53 +641,55 @@ def test_g5b_bce_fid_are_real_driver_record_fields():
     print(f"\n[G5b] BCE+FID (joint+control) are real SeedMetrics fields  PASS")
 
 
-def test_g5c_live_acp_coefficient_is_NOT_stored_REAL_GAP():
-    """STORE-COVERAGE GAP (Task-9): the 9th quantity — the LIVE ACP coefficient
-    ``correlation_penalty[step]`` (post-``adapt_param``) — is NOT stored in ANY driver record structure.
+def test_g5c_live_acp_coefficient_IS_stored_on_epoch_record():
+    """STORE-COVERAGE (Task-9, NOW CLOSED): the 9th quantity — the LIVE ACP coefficient
+    ``correlation_penalty[step]`` (read POST-``adapt_param``) — is STORED on the driver's per-epoch +
+    per-reverse-layer record ``EpochLayerRecord.correlation_penalty`` (populated via
+    ``driver.live_acp_coefficient(dtm, step, cp_coeffs)`` = ``cp_coeffs[step]`` after the adaptive
+    update, DTM.py:354-364).
 
-    This is the gap the consolidated GATE exists to catch.  We verify it against the ACTUAL record
-    structures (do not fake a pass):
-      * NOT a SeedMetrics field,
-      * NOT a probe HEADLINE_KEY / probe_scalars output key,
-      * NOT an AcceptanceConstants field,
-      * upstream ``DTM.train`` (DTM.py:354-360) computes ``step_cp = adapt_param(...)`` as a TRANSIENT
-        per-epoch local that adapts the per-step interaction weights but is never persisted into a
-        record the driver can read.
-
-    The companion has NO Stage-C per-epoch+per-layer record-assembly that captures it.  This test is
-    marked xfail(strict) so the gap is RECORDED as an expected failure (visible in the report), and so
-    that the day Task-9/Task-12 adds the storage, this test XPASSES and forces a deliberate update —
-    rather than silently green.
+    This was previously an xfail-marked GAP (the field lived in no record).  It is now a REAL pass: we
+    assert (1) ``correlation_penalty`` is a field of ``EpochLayerRecord`` and round-trips through
+    ``make_epoch_layer_record``; (2) the FULL 9-quantity store-coverage is complete across the three
+    record surfaces — probe scalars (gradient_norm, r_grad[1], r_grad[50], tau_int_Y, ESS_hat,
+    Q_struct_perp), SeedMetrics (bce/fid joint+control), and EpochLayerRecord (the live ACP coefficient).
     """
     import dataclasses
 
     from htdml.trainability_probe import TrainabilityProbe
 
     sm_fields = {f.name for f in dataclasses.fields(D.SeedMetrics)}
-    ac_fields = {f.name for f in dataclasses.fields(D.AcceptanceConstants)}
+    elr_fields = {f.name for f in dataclasses.fields(D.EpochLayerRecord)}
     headline = set(TrainabilityProbe.HEADLINE_KEYS)
     rng = np.random.default_rng(0)
     scal_keys = set(pp.probe_scalars(rng.standard_normal((4, 50, 4)), n_R=2, diag_key=0,
                                      gradient=np.ones(4)).keys())
 
-    stored_somewhere = (
-        "correlation_penalty" in sm_fields
-        or "correlation_penalty" in ac_fields
-        or "correlation_penalty" in headline
-        or "correlation_penalty" in scal_keys
-    )
-    # Document the gap loudly in captured output.
-    print(f"\n[G5c REAL GAP] live ACP coefficient 'correlation_penalty[step]' (post-adapt_param) is "
-          f"NOT stored: SeedMetrics={sorted(sm_fields)}; probe HEADLINE_KEYS={sorted(headline)}; "
-          f"AcceptanceConstants has no 'correlation_penalty'.  Upstream DTM.train adapts step_cp as a "
-          f"transient local (DTM.py:354-360), never persisted.  → Task-9 store-coverage gap.")
-    # xfail(strict): this assertion is EXPECTED to fail today.  If it ever passes (storage added), the
-    # strict xfail turns the run RED to force a deliberate flip to a real green assertion.
-    if not stored_somewhere:
-        pytest.xfail("Task-9 store-coverage gap: live ACP coefficient correlation_penalty[step] is not "
-                     "stored in any driver record (SeedMetrics/probe/AcceptanceConstants).")
-    # Reached only if storage was added — then assert it's a usable per-step record.
-    assert stored_somewhere
+    # (1) the live ACP coefficient is a first-class EpochLayerRecord field + round-trips.
+    assert "correlation_penalty" in elr_fields, (
+        f"EpochLayerRecord does NOT store 'correlation_penalty' — store-coverage gap. fields={sorted(elr_fields)}")
+    probe_layer = dict(gradient_norm=1.5, **{"r_grad[1]": 0.3, "r_grad[50]": 0.02},
+                       tau_int_Y=12.0, ESS_hat=22.0, Q_struct_perp=1.1)
+    rec = D.make_epoch_layer_record(epoch=2, layer=1, bce=0.12, fid=1.4,
+                                    correlation_penalty=0.0042, probe_layer_dict=probe_layer)
+    assert rec.correlation_penalty == pytest.approx(0.0042), "live ACP coefficient did not round-trip"
+    # live_acp_coefficient reads cp_coeffs[step] (the post-adapt_param vector the DTM loop maintains).
+    assert D.live_acp_coefficient(None, 1, np.asarray([0.001, 0.0035, 0.0])) == pytest.approx(0.0035)
+
+    # (2) full 9-quantity store-coverage across the three record surfaces.
+    probe_scalar_quantities = {"gradient_norm", "r_grad[1]", "r_grad[50]", "tau_int_Y", "ESS_hat",
+                               "Q_struct_perp"}
+    assert probe_scalar_quantities <= (headline | scal_keys), (
+        f"probe scalars missing {probe_scalar_quantities - (headline | scal_keys)}")
+    assert {"bce", "fid", "control_bce", "control_fid"} <= sm_fields, "SeedMetrics missing BCE/FID"
+    # the 9-quantity per-epoch+layer record carries every stored scalar (incl. the live ACP coefficient).
+    nine = {"bce", "fid", "correlation_penalty", "gradient_norm", "r_grad_1", "r_grad_50",
+            "tau_int_Y", "ESS_hat", "Q_struct_perp"}
+    assert nine <= elr_fields, f"EpochLayerRecord missing {nine - elr_fields}"
+
+    print(f"\n[G5c CLOSED] live ACP coefficient 'correlation_penalty' STORED on "
+          f"EpochLayerRecord (post-adapt_param via live_acp_coefficient); 9-quantity store-coverage "
+          f"complete across probe scalars + SeedMetrics + EpochLayerRecord  PASS")
 
 
 # ===========================================================================
@@ -767,114 +769,119 @@ def _optstate_bytes(opt_state):
     return tuple(np.ascontiguousarray(np.asarray(l)).tobytes() for l in leaves)
 
 
-def test_g7_lambda0_control_is_bitwise_identical_AFTER_a_real_update():
-    """(NEW, STRENGTHENED) λ=0 ≡ control AFTER a real driver update — the gate the review asked for.
+def _tiny_ste_encoder_zcc(n_img):
+    """A tiny DIFFERENTIABLE STE 'encoder' of latent width ``n_img`` (the SAME ``_ste_hard_sign`` the real
+    BinaryAutoencoder uses) so the GENUINE encoder-steering property is exercised on the narrow 4_4
+    fixture image_output block (n_img=3) without the 196-wide production AE (which only matches the 44_12
+    production image_output).  Returns ``encode_fn(params, x) -> (b0 {−1,+1}, logits)``."""
+    import htdml.autoencoder as AE
 
-    The differentiable Stage-C half (the driver's :func:`joint_update_step`) updates the ENCODER/DECODER
-    params (``ae_params`` / ``ae_opt_state``) via reconstruction + λ·L_compat through the STE (the DTM
-    arm is the GPU-only other half).  The real, non-trivial claim is: running the ACTUAL
-    ``joint_update_step`` at λ=0.0 leaves the encoder arm BITWISE-identical to a control update that has
-    NO compat term at all — i.e. the traced ``0.0 × L_compat`` path contributes exactly zero gradient
-    and does not perturb the optimizer state.  This catches any λ-dependent drift in the real update.
+    def encode_fn(params, x):
+        logits = jnp.asarray(x) @ params["W"]              # (B, n_img) logits, depends on params
+        b0 = AE._ste_hard_sign(logits)                     # {−1,+1}, ∂/∂logits = 1−tanh² (STE)
+        return b0, logits
 
-    We drive the REAL driver function (not a reimplementation), from the SAME forked params+opt-state,
-    against TWO references:
-      (A) joint_update_step(lam=0.0)  vs  a control update using ONLY AE.stage_a_loss (no compat) —
-          bitwise-identical ae_params + ae_opt_state;
-      (B) joint_update_step(lam=0.0) run TWICE from the same state — bitwise determinism (no PRNG drift).
-    Plus the genuine compat-zero facts: compat_loss(0.0)=0.0 exactly and ∂(0·L_compat)/∂clamp = 0.
+    return encode_fn
+
+
+def test_g7_lambda_steers_the_encoder_and_lambda0_is_control():
+    """(MIGRATED) The GENUINE encoder-steering gate on the REAL driver compat-steering logic.
+
+    The old G7 drove the now-DELETED constant-clamp ``joint_update_step`` path (compat clamp passed in as
+    a constant ⇒ ∂(λ·L_compat)/∂ae_params ≡ 0 for all λ — the experiment would have been inert).  That
+    path is removed from the driver; this gate now tests the encode→clamp-INSIDE-the-loss steering that
+    ``joint_update_step`` actually performs (via ``compat_steering_loss``), on the real 4_4 fixture DTM
+    (image_output block n_img=3) with an ``n_img``-matched STE encoder.  Three legs:
+
+      (A) STEERING: ∂(λ·L_compat-only loss)/∂ae_params is NON-ZERO at λ>0 (the compat steers the encoder
+          via the STE through the image_output latent) and EXACTLY ZERO at λ=0 (the control).
+      (B) λ=0 ≡ CONTROL bitwise: a full ``joint_update_step``-style update (recon + λ·L_compat) at λ=0 is
+          bitwise-identical to the SAME update with the compat term entirely absent (the traced-0 multiply
+          contributes exactly zero gradient), and λ>0 DIFFERS (the steering actually moves the encoder).
+      (C) GRADIENT ISOLATION: label_output + b_t are stop_gradient'd — only the image_output latent carries
+          ∂/∂ae_params (the clamp-gradient teeth on the genuinely-λ-dependent axis via
+          ``compat_value_and_grad_x64``: ∂(0·L_compat)/∂clamp=0, ∂(5·L_compat)/∂clamp≠0).
     """
     import optax
 
-    from htdml import autoencoder as AE
-
-    # --- (0) the genuine compat-zero facts (kept) ---------------------------------------------------
     _dtm, step = _build_fixture_step()
     beta = float(step.training_spec.beta)
+    step_maps = D.step_maps_for(step)
+    n_img = int(step_maps[0]["n_img"])
+    n_clamp = int(step_maps[0]["n_clamp"])
+    n_rest = n_clamp - n_img
+    encode_fn = _tiny_ste_encoder_zcc(n_img)
+
     rng = np.random.default_rng(13)
+    n_in = 5
+    with _x64():
+        params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
+        x_batch = jnp.asarray(rng.normal(size=(6, n_in)), dtype=jnp.float64)
+        label_clamp = jnp.asarray((rng.integers(0, 2, size=n_rest) * 2 - 1).astype(np.float64))
+        bt_clamp = jnp.zeros((0,))
+
+    def steer_loss(p, lam):
+        with _x64():
+            val, _fin = D.compat_steering_loss(p, x_batch, label_clamp, bt_clamp, step_maps, beta,
+                                               lam, n_img=n_img, encode_fn=encode_fn)
+        return val
+
+    # --- (A) STEERING: ∂(λ·L_compat)/∂ae_params ≠ 0 at λ>0, = 0 at λ=0 -------------------------------
+    with _x64():
+        g_pos = np.asarray(jax.grad(lambda p: steer_loss(p, 0.7))(params)["W"])
+        g_zero = np.asarray(jax.grad(lambda p: steer_loss(p, 0.0))(params)["W"])
+    assert np.any(np.abs(g_pos) > 1e-9), (
+        "∂(λ·L_compat)/∂ae_params is ZERO at λ>0 — the compat does NOT steer the encoder (encode→clamp "
+        "not inside the differentiated loss; Stage C would be inert — the deleted constant-clamp bug)")
+    assert np.all(g_zero == 0.0), (
+        f"∂(λ·L_compat)/∂ae_params must be EXACTLY 0 at λ=0 (control): max|g|={np.abs(g_zero).max()}")
+
+    # --- (B) λ=0 ≡ CONTROL bitwise (full update: recon + λ·L_compat) --------------------------------
+    optim = optax.sgd(0.01)
+
+    def full_loss(p, lam):
+        with _x64():
+            recon = jnp.sum((jnp.asarray(x_batch) @ p["W"]) ** 2)      # stand-in reconstruction
+            compat, _ = D.compat_steering_loss(p, x_batch, label_clamp, bt_clamp, step_maps, beta,
+                                               lam, n_img=n_img, encode_fn=encode_fn)
+        return recon + compat
+
+    def recon_only_loss(p):
+        with _x64():
+            return jnp.sum((jnp.asarray(x_batch) @ p["W"]) ** 2)
+
+    def update(loss_fn):
+        with _x64():
+            g = jax.grad(loss_fn)(params)
+            os0 = optim.init(params)
+            upd, _ = optim.update(g, os0, params)
+            return optax.apply_updates(params, upd)
+
+    joint0 = update(lambda p: full_loss(p, 0.0))     # λ=0 (compat present but traced-0)
+    control = update(recon_only_loss)                # compat term entirely ABSENT
+    jointL = update(lambda p: full_loss(p, 0.5))     # λ>0 must DIFFER
+    np.testing.assert_array_equal(np.asarray(joint0["W"]), np.asarray(control["W"]))  # bitwise control
+    assert not np.allclose(np.asarray(jointL["W"]), np.asarray(control["W"])), (
+        "λ>0 update must DIFFER from the λ=0 control (else the steering is inert)")
+
+    # --- (C) clamp-axis teeth + gradient isolation (label/b_t carry no ∂/∂ae_params) ----------------
     with _x64():
         maps = C.build_compat_maps(step)
-        n_clamp = maps["n_clamp"]
-        clamp_1 = jnp.asarray((rng.integers(0, 2, size=(1, n_clamp)) * 2 - 1).astype(np.float64))
-        val0, fin0 = C.compat_loss(0.0, clamp_1, [maps], beta)
-        assert float(val0) == 0.0 and bool(fin0), "compat_loss(λ=0.0) must be exactly 0.0 and finite"
-
-        def _lz(cl):
-            v, _ = C.compat_loss(0.0, cl, [maps], beta)
-            return v
-        assert np.all(np.asarray(jax.grad(_lz)(clamp_1)) == 0.0), "∂(0·L_compat)/∂clamp must be 0"
-
-    # --- build a REAL autoencoder + opt-state (CPU) -------------------------------------------------
-    ae = AE.BinaryAutoencoder()
-    ae_key = jr.PRNGKey(0)
-    dummy = jnp.ones((2, 28, 28, 1), dtype=jnp.float32) * 0.5
-    ae_params0 = ae.init(ae_key, dummy)
-    ae_optim = optax.adam(1e-3)
-    ae_opt_state0 = ae_optim.init(ae_params0)
-
-    # a real input batch + the per-step clamp (image_output carries the gradient; matches n_clamp).
-    x_batch = jnp.asarray(np.random.default_rng(1).random((6, 28, 28, 1)), dtype=jnp.float32)
     clamp_steps = jnp.asarray(
-        (np.random.default_rng(2).integers(0, 2, size=(NUM_DIFFUSION_STEPS, n_clamp)) * 2 - 1).astype(np.float64))
-
-    # --- (A) joint_update_step(lam=0.0) vs a control update with NO compat term ----------------------
-    j_params, j_opt, j_aux = D.joint_update_step(
-        ae, ae_params0, ae_opt_state0, ae_optim, step,
-        clamp_latents_per_step=clamp_steps, label_clamp=None, bt_clamp=None,
-        beta=beta, lam=0.0, x_batch=x_batch)
-
-    # control: the SAME reconstruction loss path but compat term entirely absent.
-    def _control_update(params, opt_state):
-        with _x64():
-            (loss, aux), grads = jax.value_and_grad(
-                lambda p: AE.stage_a_loss(p, x_batch), has_aux=True)(params)
-            updates, opt_state2 = ae_optim.update(grads, opt_state, params)
-            params2 = optax.apply_updates(params, updates)
-        return params2, opt_state2
-
-    c_params, c_opt = _control_update(ae_params0, ae_opt_state0)
-
-    assert _ae_param_bytes(j_params) == _ae_param_bytes(c_params), (
-        "joint_update_step(λ=0.0) ae_params are NOT bitwise-identical to the no-compat control update "
-        "— the traced 0.0×L_compat path perturbs the encoder update (λ=0 ≠ control)")
-    assert _optstate_bytes(j_opt) == _optstate_bytes(c_opt), (
-        "joint_update_step(λ=0.0) ae_opt_state is NOT bitwise-identical to the control update "
-        "— optimizer state diverged under the λ=0 compat path")
-
-    # --- (B) determinism: joint_update_step(λ=0.0) twice from the same state → bitwise-identical ------
-    j2_params, j2_opt, _ = D.joint_update_step(
-        ae, ae_params0, ae_opt_state0, ae_optim, step,
-        clamp_latents_per_step=clamp_steps, label_clamp=None, bt_clamp=None,
-        beta=beta, lam=0.0, x_batch=x_batch)
-    assert _ae_param_bytes(j_params) == _ae_param_bytes(j2_params), (
-        "joint_update_step(λ=0.0) is non-deterministic in ae_params (PRNG drift in the compat path)")
-    assert _optstate_bytes(j_opt) == _optstate_bytes(j2_opt), (
-        "joint_update_step(λ=0.0) is non-deterministic in ae_opt_state")
-
-    # --- (C) TEETH on the genuinely-λ-dependent axis: the compat clamp gradient. --------------------
-    # IMPORTANT honesty: in the CURRENT driver, joint_update_step's compat clamp is a passed-in CONSTANT
-    # (clamp_latents_per_step), NOT encode(ae_params, x) — so ∂(λ·L_compat)/∂ae_params ≡ 0 for ANY λ, and
-    # the (A)/(B) ae_params equality above would hold even if λ mattered.  The clamp→encoder wiring is
-    # deferred to the smoke driver.  So (A)/(B) verify the λ=0 traced-0 path does not perturb the encoder
-    # update, but they DO NOT have teeth on λ.  We add the teeth on the axis the compat DOES depend on —
-    # the clamp — via the driver's real compat_value_and_grad_x64: λ=0 zeros the clamp gradient, λ>0 does
-    # NOT (so the traced-0 multiply genuinely discriminates, and λ=0 ≠ a no-op for λ>0).
+        (rng.integers(0, 2, size=(NUM_DIFFUSION_STEPS, n_clamp)) * 2 - 1).astype(np.float64))
     v0, g0_clamp, fin0c = D.compat_value_and_grad_x64(0.0, clamp_steps, [maps], beta)
     v5, g5_clamp, fin5c = D.compat_value_and_grad_x64(5.0, clamp_steps, [maps], beta)
     assert v0 == 0.0 and fin0c, "compat_value_and_grad_x64(λ=0) value must be exactly 0.0"
     assert np.all(g0_clamp == 0.0), (
         f"∂(0·L_compat)/∂clamp must be all-zero; got max|g|={np.max(np.abs(g0_clamp))}")
     assert fin5c and np.any(g5_clamp != 0.0), (
-        "∂(5·L_compat)/∂clamp is all-zero — the compat term has NO teeth even at λ>0; the λ=0≡control "
-        "gate would be vacuous (nothing for λ=0 to zero out)")
+        "∂(5·L_compat)/∂clamp is all-zero — the compat term has NO teeth even at λ>0 (vacuous λ=0≡control)")
 
-    print(f"\n[G7] λ=0≡control AFTER a real joint_update_step:\n"
-          f"  (A) ae_params + ae_opt_state BITWISE-identical to the no-compat control update;\n"
-          f"  (B) joint_update_step(λ=0.0) bitwise-deterministic on repeat;\n"
-          f"  (C) TEETH: ∂(0·L_compat)/∂clamp=0 while ∂(5·L_compat)/∂clamp≠0 (traced-0 discriminates);\n"
-          f"  NOTE: clamp is an external constant in joint_update_step ⇒ compat does not yet steer\n"
-          f"        ae_params (clamp→encoder wiring deferred to the smoke); (A)/(B) bound the λ=0 path,\n"
-          f"        (C) supplies the λ-teeth on the clamp axis.  compat_loss(0.0)=0.0 exactly  PASS")
+    print(f"\n[G7] GENUINE encoder-steering on the real driver:\n"
+          f"  (A) ∂(0.7·L_compat)/∂ae_params max|g|={np.abs(g_pos).max():.4g} (≠0 → steers); "
+          f"λ=0 max|g|={np.abs(g_zero).max():.4g} (=0 → control);\n"
+          f"  (B) λ=0 update BITWISE-identical to the no-compat control; λ>0 update DIFFERS;\n"
+          f"  (C) clamp teeth: ∂(0·L_compat)/∂clamp=0 while ∂(5·L_compat)/∂clamp≠0  PASS")
 
 
 # ===========================================================================

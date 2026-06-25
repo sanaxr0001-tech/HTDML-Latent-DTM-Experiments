@@ -373,10 +373,12 @@ def test_lambda_steers_the_encoder_nonzero_at_lam_gt0_zero_at_lam0():
     encode_fn = _tiny_ste_encoder(n_img)
     rng = np.random.default_rng(0)
     n_in = 5
-    params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
-    x_batch = jnp.asarray(rng.normal(size=(4, n_in)), dtype=jnp.float64)
-    label_clamp = jnp.asarray(_rng_pm1(rng, n_rest))               # label_output + b_t columns (hard)
-    bt_clamp = jnp.zeros((0,))                                     # all 'rest' folded into label_clamp
+    # build the float64 arrays INSIDE the x64 scope (else JAX truncates to float32 with a UserWarning).
+    with D._x64():
+        params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
+        x_batch = jnp.asarray(rng.normal(size=(4, n_in)), dtype=jnp.float64)
+        label_clamp = jnp.asarray(_rng_pm1(rng, n_rest))           # label_output + b_t columns (hard)
+        bt_clamp = jnp.zeros((0,))                                 # all 'rest' folded into label_clamp
 
     def steer_loss(p, lam):
         with D._x64():
@@ -420,10 +422,12 @@ def test_lambda_zero_joint_update_is_bitwise_control():
     encode_fn = _tiny_ste_encoder(n_img)
     rng = np.random.default_rng(1)
     n_in = 5
-    params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
-    x_batch = jnp.asarray(rng.normal(size=(4, n_in)), dtype=jnp.float64)
-    label_clamp = jnp.asarray(_rng_pm1(rng, n_rest))
-    bt_clamp = jnp.zeros((0,))
+    # build the float64 arrays INSIDE the x64 scope (else JAX truncates to float32 with a UserWarning).
+    with D._x64():
+        params = {"W": jnp.asarray(rng.normal(size=(n_in, n_img)), dtype=jnp.float64)}
+        x_batch = jnp.asarray(rng.normal(size=(4, n_in)), dtype=jnp.float64)
+        label_clamp = jnp.asarray(_rng_pm1(rng, n_rest))
+        bt_clamp = jnp.zeros((0,))
 
     # the differentiable half: a stand-in reconstruction (sum of squared logits) + λ·L_compat steering.
     def loss_at(p, lam):

@@ -718,27 +718,21 @@ def compat_steering_loss(ae_params, x_batch, label_clamp, bt_clamp, step_maps, b
 
 def joint_update_step(ae_module, ae_params, ae_opt_state, ae_optim, step,
                       label_clamp=None, bt_clamp=None, beta=1.0, lam=0.0, x_batch=None, *,
-                      loss_kwargs=None, step_maps=None, clamp_latents_per_step=None,
-                      encode_fn=None):
+                      loss_kwargs=None, step_maps=None, encode_fn=None):
     """ONE Stage-C joint enc/dec update: reconstruction + λ·L_compat through the STE.
 
-    THE LOAD-BEARING FIX (default path, ``clamp_latents_per_step=None``): the compat clamp is assembled
-    INSIDE the differentiated loss as [image_output (= b0 = encode(params, x_batch), carries
-    ∂L_compat/∂ae_params via the STE), label_output (stop_gradient(label_clamp)), b_t (=
-    stop_gradient(bt_clamp) = stop_gradient(forward_noise(b0)))] — the Task-5 clamp ordering contract.
-    The encode→clamp wiring MUST be inside the loss, else ``∂(λ·L_compat)/∂ae_params ≡ 0`` for all λ and
-    Stage C is inert (the joint and control arms would produce IDENTICAL encoder updates).  ``encode_fn``
-    defaults to the production ``autoencoder.encode``; a test may inject an ``n_img``-matched encoder.
+    The compat clamp is ALWAYS assembled INSIDE the differentiated loss as [image_output (= b0 =
+    encode(params, x_batch), carries ∂L_compat/∂ae_params via the STE), label_output (stop_gradient(
+    label_clamp)), b_t (= stop_gradient(bt_clamp) = stop_gradient(forward_noise(b0)))] — the Task-5 clamp
+    ordering contract.  The encode→clamp wiring MUST be inside the loss, else ``∂(λ·L_compat)/∂ae_params
+    ≡ 0`` for all λ and Stage C is inert (the joint and control arms would produce IDENTICAL encoder
+    updates — the vacuous-experiment bug).  There is NO constant-clamp path: a non-steering compat half
+    produces no error/warning, so it must not be reachable.  ``encode_fn`` defaults to the production
+    ``autoencoder.encode``; a test may inject an ``n_img``-matched encoder.
 
     Control = this SAME function at λ=0 (a TRACED 0.0 multiply of the full L_compat graph; NO python
     branch on λ) → the compat half contributes exactly 0 to the gradient, so the λ=0 update is the pure
     reconstruction update == the control.
-
-    LEGACY constant-clamp path (``clamp_latents_per_step`` provided): the compat clamp is the passed-in
-    CONSTANT (not encode(params, x)).  This path is DOCUMENTED-INERT in ae_params (the compat does NOT
-    steer the encoder — ∂(λ·L_compat)/∂ae_params ≡ 0 for any λ) and is retained only for the λ=0-traced-0
-    determinism check (zero-compute G7) until that gate migrates to the steering path; do NOT use it for a
-    real Stage-C run.  At λ=0 it still gives the exact control (the traced-0 multiply).
 
     GPU-wired (smoke-deferred — `encode` at the production 196-latent / 44_12 scale is the smoke's job).
     ``step_maps`` is the refresh-gated, x64-scoped positive-phase maps for this diffusion step (built via
@@ -759,15 +753,10 @@ def joint_update_step(ae_module, ae_params, ae_opt_state, ae_optim, step,
     def _loss(params):
         # reconstruction half (STE forward = hard latent; backward = tanh surrogate) — encodes INSIDE.
         recon, aux = AE.stage_a_loss(params, x_batch, **loss_kwargs)
-        if clamp_latents_per_step is not None:
-            # LEGACY: constant clamp (documented-inert in ae_params; λ=0 still gives the control).
-            compat_val, _fin = C.compat_loss(lam, clamp_latents_per_step, step_maps, beta)
-        else:
-            # FIX: λ·L_compat with the encode→clamp wiring INSIDE (image_output = encoded b0 carries the
-            # gradient).  A CONSTANT clamp arg would zero ∂(λ·L_compat)/∂ae_params — the bug.
-            compat_val, _fin = compat_steering_loss(params, x_batch, label_clamp, bt_clamp,
-                                                    step_maps, beta, lam, n_img=n_img,
-                                                    encode_fn=encode_fn)
+        # compat half: λ·L_compat with the encode→clamp wiring INSIDE (image_output = encoded b0 carries
+        # the gradient).  A CONSTANT clamp would zero ∂(λ·L_compat)/∂ae_params — that path is removed.
+        compat_val, _fin = compat_steering_loss(params, x_batch, label_clamp, bt_clamp,
+                                                step_maps, beta, lam, n_img=n_img, encode_fn=encode_fn)
         return recon + compat_val, aux
 
     with _x64():

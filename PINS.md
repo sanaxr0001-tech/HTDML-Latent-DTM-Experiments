@@ -72,4 +72,8 @@ These values are NOT invented; they are frozen at their respective calibration g
 |------|--------|
 | dataset-split sha256 | `9e7e99291d61ddfc8623256c146d49a9203938f8b02fb994b7ee6fdd64f4fd8b` |
 | InceptionV3-FID-weights sha256 | `4e030efa5bccac3222d975f658d1884f9e00fab24f2812082884539220b90d77` |
-| Probe acceptance constants: L_traj, N_chains, N_R (target ≈16), C, ESS_min | TBD — frozen at Task 9 local calibration |
+| L_traj | 400 (frozen Task-12 from MEASUREMENT: L_traj=400 ≥ C·τ̂=6.9 (trajectory adequacy gate (i)) AND > K=50 (ρ_Y(50) defined) AND ≥ 1/se²=400 (white-noise autocorr SE ≤ 0.05); rounded up to a multiple of K) |
+| N_chains | 4 (frozen Task-12 from MEASUREMENT: N_chains=4: n_chains·L_traj=1600 ≥ 1/se²=400 (projection SE ≈ 1/√(n_chains·L_traj) ≤ 0.05); floored at 4 for a non-degenerate chain-axis vmap) |
+| N_R | 16 (frozen Task-12: N_R=16: fixed Rademacher screen count (wiki/exp16 target ≈16)) |
+| C | 5.0 (frozen Task-12: C=5.0: trajectory-adequacy factor = the half-Sokal self-consistency constant (pp.SOKAL_C); MEASUREMENT confirms L_traj ≥ C·τ̂) |
+| ESS_min | 10.0 (a-priori RULE, NOT measured: a-priori: ESS_min = ESS_FLOOR = 10 effective samples (min for SE≈1/√ESS acceptable AND τ̂ trustworthy, Sokal); ⟺ τ_int,Y ≤ K/(2·ESS_min) = 2.5.  Fixed before any joint/control comparison; NOT a calibration output.) |

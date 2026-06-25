@@ -155,9 +155,14 @@ class LatentDTM:
         assertions (DTM.py:675-680, step.py:393) and ACP autocorr path are satisfied.
         """
         train_ds, test_ds, ohtl = latent_dataset
-        self.dtm.train_dataset = train_ds
-        self.dtm.test_dataset = test_ds
-        self.dtm.one_hot_target_labels = ohtl
+        # The Task-6 adapter returns NUMPY bool arrays.  dtm.train's ACP compute_autocorr path
+        # (step.py:387-395) closes over test_images/test_labels inside a jitted inner_fn and indexes
+        # them by a TRACER (rand_idx); train_step_model likewise traces the data.  A numpy array indexed
+        # by a tracer raises TracerArrayConversionError (surfaced by the Task-12 smoke).  → store as JAX
+        # arrays (matches upstream load_dataset / the smoke_test_data_dict fixtures, which are jnp).
+        self.dtm.train_dataset = {k: jnp.asarray(v) for k, v in train_ds.items()}
+        self.dtm.test_dataset = {k: jnp.asarray(v) for k, v in test_ds.items()}
+        self.dtm.one_hot_target_labels = jnp.asarray(ohtl)
         self.dtm.n_image_pixels = int(train_ds["image"].shape[1])
         self.dtm.n_label_nodes = int(train_ds["label"].shape[1])
 

@@ -344,4 +344,10 @@ def test_fit_asserts_kernel_live_without_training(cpu_perturbed_ldtm, monkeypatc
     assert out == "stub-train-return"
     assert called["train"] is True and called["args"] == (1, 1)
     assert ldtm.dtm.n_image_pixels == 196 and ldtm.dtm.n_label_nodes == 2
-    assert ldtm.dtm.train_dataset is train_ds
+    # inject_latents now stores the dataset as JAX arrays (the Task-12 smoke surfaced that the ACP
+    # compute_autocorr path indexes test_images by a tracer → numpy raises TracerArrayConversionError).
+    # So check VALUE-equality + jax-array type, not object identity.
+    assert isinstance(ldtm.dtm.train_dataset["image"], jnp.ndarray)
+    assert np.array_equal(np.asarray(ldtm.dtm.train_dataset["image"]), train_ds["image"])
+    assert np.array_equal(np.asarray(ldtm.dtm.train_dataset["label"]), train_ds["label"])
+    assert np.array_equal(np.asarray(ldtm.dtm.test_dataset["image"]), test_ds["image"])

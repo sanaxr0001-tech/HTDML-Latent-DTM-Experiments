@@ -57,7 +57,7 @@ class SeedResult:
 class StageCOps(Protocol):
     def pretrain_encoder(self, seed: int, clock: WallClock) -> Any: ...
     def train_latent_dtm(self, encoder: Any, seed: int, clock: WallClock) -> Any: ...
-    def calibrate_tau(self, dtm: Any, clock: WallClock) -> dict: ...                 # {tau_hat_layers, cal_stable, failed_layer}
+    def calibrate_tau(self, dtm: Any, clock: WallClock) -> dict: ...                 # {tau_hat_layers, cal_stable, failed_layer, cal_curves?, failed_axes?}
     def estimate_probe_cost(self, L_traj: int) -> float: ...                          # seconds
     def fork(self, dtm: Any, workdir: str) -> Tuple[Any, Any]: ...                    # (control, joint)
     def epoch_block_pair(self, joint, control, encoder_lr: float, L_traj: int, clock: WallClock) -> BlockResult: ...
@@ -80,6 +80,13 @@ def reconfirm_l_traj(ops, dtm, clock, const) -> ReconfirmResult:
     cal = ops.calibrate_tau(dtm, clock)
     tau_layers = [float(t) for t in cal["tau_hat_layers"]]
     base = {"tau_hat_layers": tau_layers, "L_traj_frozen": const.L_traj}
+    # persist the per-layer doubling curves + failed axes so a Q-CALIBRATION-FAIL is diagnosable from the
+    # run JSON WITHOUT a re-run (run 5b9cbbc discarded them).  Additive + guarded: fakes/old ops that omit
+    # the keys are unaffected; threaded once here so ALL branches (cal_fail/budget_wall/proceed) carry them.
+    if "cal_curves" in cal:
+        base["cal_curves"] = cal["cal_curves"]
+    if "failed_axes" in cal:
+        base["failed_axes"] = cal["failed_axes"]
     if not cal.get("cal_stable", True):
         base.update(cal_stable=False, failed_layer=cal.get("failed_layer"),
                     tau_hat_worst=(max(tau_layers) if tau_layers else None),

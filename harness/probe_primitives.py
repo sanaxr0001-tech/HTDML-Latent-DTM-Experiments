@@ -60,6 +60,15 @@ SOKAL_C = 5.0      # half-Sokal self-consistency: L >= SOKAL_C*tau_max (NOT the 
 TAU_TOL = 0.15     # tau_max doubling stability: |dtau_max|/tau_max < TAU_TOL
 STAB_TOL = 0.15    # aggregate-T_O Cal-STABLE: |dT_O|/T_O AND ||dS||_1/sum(S) BOTH < STAB_TOL
 
+# Small-τ ABSOLUTE floor for the noisy magnitude axes (regime-aware cal-gate, numpy.isclose rtol+atol
+# style).  TAU_ABS_FLOOR = the half-Sokal τ_int resolution floor: a rung-to-rung |Δτ| below ONE sweep is
+# below the estimator's resolution — an A-PRIORI property of the half-Sokal estimator, NOT tuned to any
+# seed's data.  At τ̂≈2 the PURE relative TAU_TOL/STAB_TOL tests demand finer-than-floor precision and
+# are dominated by estimation noise (a 2.0→2.5 jitter = 25% > 15%) → the gate noise-FAILS a well-mixed
+# chain (the FALSE Q-CALIBRATION-FAIL of run 5b9cbbc, exp1).  The floor restores the regime; the derived
+# small-τ cut = TAU_ABS_FLOOR/TAU_TOL ≈ 6.67.  Does NOT change TAU_TOL/STAB_TOL/SOKAL_C (still pinned).
+TAU_ABS_FLOOR = 1.0
+
 # ============================================================ companion K=50 convention (build-notes §E1)
 K_WINDOW = 50          # window_samples_K — retained samples per window (= n_samples upstream)
 B_WARMUP = 400         # steps_warmup — burn-in sweeps discarded before retention
@@ -146,35 +155,57 @@ def classify_calibration_stable(curve):
 
     `curve` is a list of rung dicts (in doubling order) each carrying:
       tau_max, T_O, self_consistent (bool, = L >= SOKAL_C*tau_max), dS_l1 (float | None for rung 0).
-    A rung i>=1 is a STABLE step iff ALL THREE axes hold (exp15 classify_curve:550-551):
-      * tau_stable : rel_tau = |tau_max[i]-tau_max[i-1]| / tau_max[i-1] < TAU_TOL  AND self_consistent[i]
-      * TO_stable  : dT = |T_O[i]-T_O[i-1]| / T_O[i]               < STAB_TOL  AND dS_l1[i] < STAB_TOL
-    cal_stable is True iff TWO CONSECUTIVE rungs are STABLE (consec_stable >= 2, exp15:559). Annotates
-    each rung with step_class ('STABLE'/'NOT-STABLE') + the per-axis residuals; reports which axis (or
-    axes) were unstable on the FIRST non-stable rung after any stable run, for the driver's diagnostics.
+    A rung i>=1 is a STABLE step iff BOTH axes hold (exp15 classify_curve:550-551, made regime-aware):
+      * tau_stable : self_consistent[i]  AND  (rel_tau < TAU_TOL  OR  |dtau| < TAU_ABS_FLOOR)
+      * TO_stable  : (dT < STAB_TOL  OR  (small_tau AND self_consistent[i]))  AND  dS_l1[i] < STAB_TOL
+    where rel_tau = |tau_max[i]-tau_max[i-1]|/tau_max[i-1], dT = |T_O[i]-T_O[i-1]|/T_O[i], and
+    small_tau = both endpoints below the derived cut TAU_ABS_FLOOR/TAU_TOL (~6.67).  The ABSOLUTE floor
+    (numpy.isclose rtol+atol) keeps the gate from noise-FAILING a well-mixed small-τ̂ chain whose pure
+    relative changes are dominated by sub-resolution estimation noise (run 5b9cbbc, exp1); it is
+    self-gating to the small-τ regime and inert at the τ≈O(10) regime the exp15/16 tests cover.
+    self-consistency (L>=SOKAL_C*tau_max) and the L1-normalized SHAPE guard (dS_l1<STAB_TOL) are RETAINED
+    ALWAYS, so the gate stays non-vacuous.  cal_stable is True iff TWO CONSECUTIVE rungs are STABLE
+    (consec_stable >= 2, exp15:559).  Annotates each rung with step_class ('STABLE'/'NOT-STABLE') + the
+    per-axis residuals (incl. abs_dtau, small_tau); failed_axis accumulates the axis (or axes) that were
+    unstable across ALL non-stable rungs (not reset on a stable rung), for the driver's diagnostics — it
+    does not affect cal_stable, which is set solely by consec_stable >= 2.
     """
     annotated = [dict(c) for c in curve]
     consec_stable = 0
     cal_stable = False
     failed_axis = []
+    small_tau_cut = TAU_ABS_FLOOR / TAU_TOL   # ≈6.67: τ below which the relative tol demands sub-floor precision
     for i in range(1, len(annotated)):
         c, p = annotated[i], annotated[i - 1]
         rel_tau = abs(c["tau_max"] - p["tau_max"]) / max(p["tau_max"], 1e-9)
+        abs_dtau = abs(c["tau_max"] - p["tau_max"])
         dT = abs(c["T_O"] - p["T_O"]) / max(c["T_O"], 1e-9)
         dS_l1 = c["dS_l1"] if c.get("dS_l1") is not None else 1.0   # rung-0 / missing => non-stable
-        tau_stable = bool((rel_tau < TAU_TOL) and c["self_consistent"])
-        TO_stable = bool((dT < STAB_TOL) and (dS_l1 < STAB_TOL))    # BOTH dT and dS_l1 axes
+        # small-τ regime: BOTH endpoints below the cut, where the relative tol is dominated by estimator noise.
+        small_tau = bool((c["tau_max"] < small_tau_cut) and (p["tau_max"] < small_tau_cut))
+        # τ axis: relative tol OR an ABSOLUTE sub-Sokal-resolution floor (|Δτ| < 1 sweep is below the
+        # half-Sokal τ_int estimator's resolution).  self-consistency (L>=SOKAL_C·τ) is ALWAYS required.
+        # NB the abs-floor is self-gating to τ<~6.67 (it can only flip a verdict when rel_tau>=TAU_TOL ⇒ τ[i-1]<cut).
+        tau_stable = bool(c["self_consistent"] and ((rel_tau < TAU_TOL) or (abs_dtau < TAU_ABS_FLOOR)))
+        # T_O magnitude axis: relative tol OR (small-τ AND self-consistent) — at τ<~6.67 the relative dT
+        # inherits the SAME estimator noise as τ (S_a = 2·τ_a·Var_a).  The L1-normalized SHAPE guard
+        # (dS_l1 < STAB_TOL) is RETAINED ALWAYS as the stationarity veto (keeps the gate non-vacuous).
+        TO_stable = bool(((dT < STAB_TOL) or (small_tau and c["self_consistent"])) and (dS_l1 < STAB_TOL))
         c["rel_tau"] = float(rel_tau)
+        c["abs_dtau"] = float(abs_dtau)
         c["dT"] = float(dT)
+        c["small_tau"] = bool(small_tau)
         if tau_stable and TO_stable:
             c["step_class"] = "STABLE"
             consec_stable += 1
         else:
             c["step_class"] = "NOT-STABLE"
-            # record which axis/axes drove the instability (matches exp15 classify_curve:563-566)
-            if (not c["self_consistent"]) or rel_tau >= TAU_TOL:
+            # record which axis/axes drove the instability — derived from the per-axis booleans so the
+            # label stays correct under the regime-aware relaxation (matches exp15 classify_curve:563-566
+            # on every τ≈10 rung, where small_tau=False ⇒ not TO_stable == (dT>=STAB_TOL or dS_l1>=STAB_TOL)).
+            if not tau_stable:
                 failed_axis.append("tau_hat")
-            if dT >= STAB_TOL or dS_l1 >= STAB_TOL:
+            if not TO_stable:
                 failed_axis.append("aggregate_T_O")
             consec_stable = 0
         if consec_stable >= 2:

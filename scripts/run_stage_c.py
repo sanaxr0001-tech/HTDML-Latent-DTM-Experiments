@@ -184,13 +184,17 @@ class RealOps:
     # ------------------------------------------------------------------ calibrate τ̂ (per layer)
     def calibrate_tau(self, model, clock):
         """4× TrainabilityProbe.calibrate (one per reverse layer) → aggregate to the seam dict
-        {tau_hat_layers:[4], cal_stable:all(...), failed_layer:first failing idx|None}."""
+        {tau_hat_layers:[4], cal_stable:all(...), failed_layer:first failing idx|None,
+        cal_curves:[per-layer annotated doubling curve], failed_axes:[per-layer failed axis list]}.
+        The per-layer curve + failed_axis are PERSISTED (run 5b9cbbc discarded them) so a
+        Q-CALIBRATION-FAIL is diagnosable from the run JSON without a re-run."""
         from htdml.trainability_probe import TrainabilityProbe
 
         cfg = self.cfg
         probe = TrainabilityProbe()
         dtm = model.ldtm.dtm
         tau_layers, stables = [], []
+        cal_curves, failed_axes = [], []      # per-layer annotated doubling curve + failed axis/axes (diagnostics)
         failed_layer = None
         for layer in range(len(dtm.steps)):
             clock.checkpoint(f"calib_layer_{layer}", raise_on_over=True)
@@ -199,6 +203,8 @@ class RealOps:
                                   n_rungs=cfg.cal_n_rungs, diag_key=cfg.diag_key)
             tau_layers.append(float(cal["tau_hat"]))
             stables.append(bool(cal["cal_stable"]))
+            cal_curves.append(cal.get("curve"))          # JSON-safe annotated rungs (dS_l1 None → null)
+            failed_axes.append(cal.get("failed_axis"))   # list[str] naming the vetoing axis/axes per layer
             if not cal["cal_stable"] and failed_layer is None:
                 failed_layer = layer
         cal_stable = bool(all(stables))
@@ -212,7 +218,7 @@ class RealOps:
                   f"to exercise the Stage-C plumbing — NOT a science verdict.", flush=True)
             cal_stable, failed_layer = True, None
         return {"tau_hat_layers": tau_layers, "cal_stable": cal_stable,
-                "failed_layer": failed_layer}
+                "failed_layer": failed_layer, "cal_curves": cal_curves, "failed_axes": failed_axes}
 
     # ------------------------------------------------------------------ probe-cost estimate (seconds)
     def estimate_probe_cost(self, L_traj):
@@ -443,10 +449,20 @@ class RealOps:
                 DRV.restore_out_of_band(arm.dtm, arm_state)
                 arm.ae_params = ae_params
 
+def resolve_outdir(env, outdir=None):
+    """Resolve the output dir: explicit arg > OUTDIR env > default ../results.  The OUTDIR knob lets the
+    exp2 re-run write to experiments/exp2-cal-gate-fix/artifacts/ (named 'artifacts', NOT 'results', to
+    dodge the results/ gitignore) without clobbering run-1; the default keeps the pre-exp2 behavior."""
+    if outdir:
+        return outdir
+    if env.get("OUTDIR"):
+        return env["OUTDIR"]
+    return os.path.join(os.path.dirname(__file__), "..", "results")
+
 def main(env=None, outdir=None):
     env = os.environ if env is None else env
     seeds, const, mode = parse_config(env)
-    outdir = outdir or os.path.join(os.path.dirname(__file__), "..", "results")
+    outdir = resolve_outdir(env, outdir)
     clock = WallClock(cap_seconds=const.GPU_H_CAP * 3600.0)
     ops = RealOps(const, smoke=(mode == "smoke"))
     result = O.run_stage_c(ops, seeds=seeds, acc=AcceptanceConstants(

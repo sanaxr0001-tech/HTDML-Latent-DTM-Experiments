@@ -64,6 +64,40 @@ def test_reconfirm_binds_unaffordable_budget_wall_uncapped():
     assert rc.status == "budget_wall" and rc.record["affordable"] is False
     assert seen["L"] == rc.L_adeq and rc.L_adeq > 400   # cost estimated at the UNCAPPED adequate L
 
+def test_reconfirm_threads_cal_curves_into_record():
+    """Curve persistence (exp2): when ops.calibrate_tau supplies per-layer cal_curves + failed_axes,
+    reconfirm_l_traj must thread them into the record in BOTH the cal_fail and the proceed branch, so a
+    Q-CALIBRATION-FAIL is diagnosable from the run JSON WITHOUT a re-run (run 5b9cbbc discarded them)."""
+    curve = [dict(L=100, tau_max=2.0, T_O=5000.0, self_consistent=True, dS_l1=None, step_class="NOT-STABLE"),
+             dict(L=200, tau_max=2.2, T_O=5100.0, self_consistent=True, dS_l1=0.02, step_class="STABLE")]
+    # cal_fail branch
+    rc_fail = O.reconfirm_l_traj(
+        _Ops(calibrate_tau=lambda d, c: {"tau_hat_layers": [2.0, 2.0, 2.0, 9.0], "cal_stable": False,
+                                         "failed_layer": 3, "cal_curves": [curve] * 4,
+                                         "failed_axes": [["tau_hat"]] * 4}),
+        object(), _Clock(), O.FrozenConstants())
+    assert rc_fail.status == "cal_fail"
+    assert rc_fail.record["cal_curves"] == [curve] * 4
+    assert rc_fail.record["failed_axes"] == [["tau_hat"]] * 4
+    # proceed branch
+    rc_ok = O.reconfirm_l_traj(
+        _Ops(calibrate_tau=lambda d, c: {"tau_hat_layers": [2.0, 2.0, 2.0, 2.0], "cal_stable": True,
+                                         "failed_layer": None, "cal_curves": [curve] * 4,
+                                         "failed_axes": [[]] * 4},
+             estimate_probe_cost=lambda L: 10.0),
+        object(), _Clock(exceed=False), O.FrozenConstants())
+    assert rc_ok.status == "proceed"
+    assert rc_ok.record["cal_curves"] == [curve] * 4 and rc_ok.record["failed_axes"] == [[]] * 4
+
+def test_reconfirm_omitting_cal_curves_is_safe():
+    """Backward-compat: a calibrate_tau that OMITS cal_curves/failed_axes (the pre-exp2 contract) must
+    still produce a valid record without the keys — the threading is guarded, never a KeyError."""
+    rc = O.reconfirm_l_traj(
+        _Ops(calibrate_tau=lambda d, c: {"tau_hat_layers": [1.0, 1.0, 1.0, 1.0], "cal_stable": True,
+                                         "failed_layer": None}, estimate_probe_cost=lambda L: 10.0),
+        object(), _Clock(exceed=False), O.FrozenConstants())
+    assert rc.status == "proceed" and "cal_curves" not in rc.record and "failed_axes" not in rc.record
+
 
 # ---------------------------------------------------------------------------
 # Task 3: run_reject_loop

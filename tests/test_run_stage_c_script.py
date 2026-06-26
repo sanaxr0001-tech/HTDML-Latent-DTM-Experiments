@@ -26,3 +26,12 @@ def test_build_provenance_has_git_and_backend_keys():
     prov = R.build_provenance()
     for k in ("git_sha", "env_freeze", "jax_backend", "is_patch_live"):
         assert k in prov
+
+def test_resolve_outdir_prefers_arg_then_env_then_default():
+    """OUTDIR knob (exp2): explicit arg > OUTDIR env > default ../results, so run-2 can write to its own
+    experiments/exp2-cal-gate-fix/artifacts/ without clobbering run-1, and the default stays backward-compat."""
+    assert R.resolve_outdir({}, "/x/y") == "/x/y"                               # explicit arg wins
+    assert R.resolve_outdir({"OUTDIR": "experiments/exp2-cal-gate-fix/artifacts"}) == \
+        "experiments/exp2-cal-gate-fix/artifacts"                              # OUTDIR env
+    assert R.resolve_outdir({"OUTDIR": "env/path"}, "/arg/path") == "/arg/path"  # arg overrides env
+    assert R.resolve_outdir({}).replace("\\", "/").endswith("results")          # default (backward-compat)

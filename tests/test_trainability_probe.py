@@ -326,10 +326,13 @@ def test_calibration_returns_tau_TO_calstable(fixture_dtm, probe):
 
 # ============================================================ TP-calib: Cal-STABLE classifier (exp16-faithful)
 def test_cal_stable_classifier_thresholds_are_exp16_constants():
-    """The Cal-STABLE thresholds are the VERBATIM exp15/exp16 constants (NOT laxer)."""
+    """The Cal-STABLE thresholds are the VERBATIM exp15/exp16 constants (NOT laxer).  The small-τ
+    ABSOLUTE floor is an ADDED a-priori estimator constant; the three relative thresholds are unchanged."""
     assert pp.SOKAL_C == 5.0
     assert pp.TAU_TOL == 0.15
     assert pp.STAB_TOL == 0.15
+    assert pp.TAU_ABS_FLOOR == 1.0                       # small-τ absolute floor (NEW, regime-aware)
+    assert pp.TAU_ABS_FLOOR / pp.TAU_TOL == 1.0 / 0.15   # derived small-τ cut ≈ 6.67
 
 
 def test_cal_stable_requires_two_consecutive_stable_rungs():
@@ -389,3 +392,75 @@ def test_cal_stable_vetoed_by_non_self_consistent_rung():
     cal_stable, _ann, failed_axis = pp.classify_calibration_stable(curve)
     assert cal_stable is False
     assert "tau_hat" in failed_axis  # self_consistent is folded into the tau axis (exp16)
+
+
+# ====================================================== TP-calib: Cal-STABLE small-τ regime floor (exp2)
+# The 5b9cbbc paid H200 run returned Q-CALIBRATION-FAIL on both seeds at τ̂≈2 — a cal-GATE artifact, NOT
+# bad mixing (chains self-consistent ~16× over L_traj≥C·τ̂).  At tiny τ̂ the PURE relative TAU_TOL/STAB_TOL
+# tests are dominated by estimation noise (a 2.0→2.5 jitter = 25% > 15%) → never 2 consecutive STABLE
+# rungs → false fail.  The regime-aware fix adds an ABSOLUTE floor (numpy.isclose rtol+atol style):
+# TAU_ABS_FLOOR = the half-Sokal τ_int resolution floor (sub-1-sweep |Δτ| is unresolvable, an a-priori
+# property NOT tuned to seed data).  self-consistency (L≥SOKAL_C·τ) + the L1-normalized SHAPE guard
+# (dS_l1<STAB_TOL) are RETAINED ALWAYS so the gate stays non-vacuous.
+def test_cal_stable_small_tau_noise_regime_now_passes():
+    """REGIME FIX (the exp1→exp2 repair): a well-mixed small-τ̂ chain whose rung-to-rung Δτ (~0.5) is
+    sub-resolution and whose L1 shape is stable MUST be cal_stable=True — even though the PURE relative
+    rel_tau (~0.2–0.32) and dT (~0.17–0.19) both EXCEED 0.15.  Doubling rungs L=100/200/400/800 (the full
+    cal config).  Without the floor this is the FALSE Q-CALIBRATION-FAIL of run 5b9cbbc."""
+    curve = [
+        dict(L=100, tau_max=1.9, T_O=5200.0, self_consistent=True, dS_l1=None),
+        dict(L=200, tau_max=2.5, T_O=6300.0, self_consistent=True, dS_l1=0.04),  # rel_tau=0.316, dT=0.175, |Δτ|=0.6
+        dict(L=400, tau_max=2.0, T_O=5300.0, self_consistent=True, dS_l1=0.04),  # rel_tau=0.20,  dT=0.189, |Δτ|=0.5
+        dict(L=800, tau_max=2.4, T_O=6400.0, self_consistent=True, dS_l1=0.04),
+    ]
+    cal_stable, annotated, _failed = pp.classify_calibration_stable(curve)
+    assert cal_stable is True, (
+        "small-τ noise-regime chain (sub-Sokal Δτ, stable L1 shape, self-consistent) must be cal_stable=True")
+    # both relaxations are load-bearing here: rel_tau ≥ TAU_TOL but |Δτ| < TAU_ABS_FLOOR, and dT ≥ STAB_TOL
+    # but small_tau forgives the magnitude — yet two consecutive STABLE rungs are reached.
+    assert annotated[1]["small_tau"] is True and annotated[1]["abs_dtau"] < pp.TAU_ABS_FLOOR
+    assert [r.get("step_class") for r in annotated[1:3]] == ["STABLE", "STABLE"]
+
+
+def test_cal_stable_small_tau_drifting_shape_still_fails():
+    """GATE-NOT-VACUOUS guard: a small-τ chain whose L1-normalized S_a SHAPE is still drifting
+    (dS_l1 ≥ STAB_TOL) MUST stay cal_stable=False — the shape guard is RETAINED ALWAYS even when the
+    magnitude (dT) axis is relaxed in the small-τ regime.  Proves the floor did not make the gate vacuous."""
+    curve = [
+        dict(L=100, tau_max=2.0, T_O=5200.0, self_consistent=True, dS_l1=None),
+        dict(L=200, tau_max=2.3, T_O=5400.0, self_consistent=True, dS_l1=0.30),  # shape drifting ≥ 0.15
+        dict(L=400, tau_max=2.1, T_O=5300.0, self_consistent=True, dS_l1=0.25),
+        dict(L=800, tau_max=2.2, T_O=5350.0, self_consistent=True, dS_l1=0.28),
+    ]
+    cal_stable, annotated, failed_axis = pp.classify_calibration_stable(curve)
+    assert cal_stable is False, "drifting L1 shape (dS_l1 ≥ STAB_TOL) must veto even in the small-τ regime"
+    assert "aggregate_T_O" in failed_axis
+    assert all(r.get("step_class") == "NOT-STABLE" for r in annotated[1:])
+
+
+def test_cal_stable_small_tau_floor_does_not_forgive_real_tau_drift():
+    """The τ ABSOLUTE floor forgives only SUB-resolution (|Δτ| < TAU_ABS_FLOOR=1 sweep) jitter, NOT a
+    genuine τ trend: a small-ish chain whose rung-to-rung |Δτ| ≥ TAU_ABS_FLOOR still fails the τ axis."""
+    curve = [
+        dict(L=100, tau_max=2.0, T_O=5200.0, self_consistent=True, dS_l1=None),
+        dict(L=200, tau_max=3.5, T_O=5400.0, self_consistent=True, dS_l1=0.02),  # |Δτ|=1.5 ≥ floor
+        dict(L=400, tau_max=5.2, T_O=5300.0, self_consistent=True, dS_l1=0.02),  # |Δτ|=1.7 ≥ floor
+        dict(L=800, tau_max=2.0, T_O=5350.0, self_consistent=True, dS_l1=0.02),
+    ]
+    cal_stable, _annotated, failed_axis = pp.classify_calibration_stable(curve)
+    assert cal_stable is False, "rung-to-rung |Δτ| ≥ TAU_ABS_FLOOR must still veto the τ axis"
+    assert "tau_hat" in failed_axis
+
+
+def test_cal_stable_small_tau_vetoed_by_non_self_consistent():
+    """The small-τ floor relaxes only the RELATIVE-change axes — it must NOT bypass self-consistency.
+    A small-τ chain that is NOT self-consistent (L < SOKAL_C·τ_max) MUST still fail: self_consistent is a
+    hard AND on the τ axis AND a required conjunct of the small-τ T_O relaxation."""
+    curve = [
+        dict(L=8, tau_max=2.0, T_O=5200.0, self_consistent=False, dS_l1=None),   # L=8 < 5·2=10
+        dict(L=16, tau_max=2.2, T_O=5300.0, self_consistent=False, dS_l1=0.02),
+        dict(L=32, tau_max=2.1, T_O=5250.0, self_consistent=False, dS_l1=0.02),
+    ]
+    cal_stable, _annotated, failed_axis = pp.classify_calibration_stable(curve)
+    assert cal_stable is False, "a non-self-consistent (L < C·τ) chain must fail even in the small-τ regime"
+    assert "tau_hat" in failed_axis  # self_consistent folds into the tau axis

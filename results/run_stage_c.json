@@ -1,0 +1,80 @@
+{
+  "outcome": "Q-CALIBRATION-FAIL",
+  "constants": {
+    "ESS_min": 10.0,
+    "C": 5.0,
+    "L_traj": 400,
+    "N_chains": 4,
+    "N_R": 16,
+    "GPU_H_CAP": 16.0,
+    "lambda_joint": 1.0
+  },
+  "provenance": {
+    "git_sha": "57eac01ac70604236a6339e54f084473e8645e03",
+    "env_freeze": "env-h200-freeze.txt",
+    "jax_backend": "gpu",
+    "is_patch_live": true
+  },
+  "budget": {
+    "gpu_h_total": 9.2853071994225,
+    "budget_wall": false
+  },
+  "seeds": [
+    {
+      "seed": 1,
+      "token": "Q-CALIBRATION-FAIL",
+      "bce_joint": Infinity,
+      "fid_joint": Infinity,
+      "bce_control": 0.0,
+      "fid_control": 0.0,
+      "joint_layers": [],
+      "control_layers": [],
+      "l_traj_reconfirm": {
+        "tau_hat_layers": [
+          2.060217011567023,
+          2.4588426584053873,
+          2.279833444807127,
+          5.07148915170648
+        ],
+        "L_traj_frozen": 400,
+        "cal_stable": false,
+        "failed_layer": 0,
+        "tau_hat_worst": 5.07148915170648,
+        "L_traj_adequate": null,
+        "adjusted": false,
+        "affordable": null
+      },
+      "reject_log": []
+    },
+    {
+      "seed": 2,
+      "token": "Q-CALIBRATION-FAIL",
+      "bce_joint": Infinity,
+      "fid_joint": Infinity,
+      "bce_control": 0.0,
+      "fid_control": 0.0,
+      "joint_layers": [],
+      "control_layers": [],
+      "l_traj_reconfirm": {
+        "tau_hat_layers": [
+          1.9714664793164578,
+          3.9954802424829494,
+          3.1945415459858064,
+          1.4177068513908995
+        ],
+        "L_traj_frozen": 400,
+        "cal_stable": false,
+        "failed_layer": 0,
+        "tau_hat_worst": 3.9954802424829494,
+        "L_traj_adequate": null,
+        "adjusted": false,
+        "affordable": null
+      },
+      "reject_log": []
+    }
+  ],
+  "two_seed": {
+    "both_pass": false,
+    "run_token": "Q-CALIBRATION-FAIL"
+  }
+}

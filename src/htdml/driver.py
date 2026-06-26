@@ -550,6 +550,97 @@ def restore_out_of_band(loaded_dtm, parent: ArmState) -> None:
             loaded_dtm.steps[i] = eqx.tree_at(lambda s: s.autocorrelations, step, dict(payload))
 
 
+# ====================================================================== Stage-B checkpoint (RESUME_FROM)
+# Persist the post-Stage-B state so a re-run can skip Stage A+B (run 5b9cbbc lost its trained DTM — the
+# only on-disk save was fork_checkpoint, AFTER the cal gate it never passed).  These are PURE, CPU-testable
+# helpers (plain arrays/dicts/pytrees); the GPU-binding persist/load (RealOps) reuses them + DTM.save_epoch/
+# DTM.load + capture_arm_state/restore_out_of_band.  MUST run OUTSIDE any _x64() scope (float32 templates).
+_CKPT_SCHEMA = "htdml-stage-b-checkpoint/v1"
+
+
+def save_arm_state_to_disk(armstate: "ArmState", ae_params, manifest: dict, dirpath: str) -> None:
+    """Serialize the OUT-OF-BAND fork static (dtm.key + per-step autocorrelations + opt_counts), the
+    encoder Flax params, and the manifest into ``dirpath``.  The DTM weights are written separately by
+    DTM.save_epoch (see RealOps.persist_stage_b)."""
+    import json
+    import flax.serialization as fser
+    assert not jax.config.jax_enable_x64, "save_arm_state_to_disk must run under float32 (no _x64 scope)"
+    os.makedirs(dirpath, exist_ok=True)
+    np.save(os.path.join(dirpath, "dtm_key.npy"), np.asarray(armstate.key))
+    # autocorrelations is a ragged List[dict] (epoch→scalar) — JSON with scalar coercion (NOT np.save).
+    autocorr = [{str(k): float(np.asarray(v)) for k, v in d.items()} for d in armstate.autocorrelations]
+    with open(os.path.join(dirpath, "autocorrelations.json"), "w") as f:
+        json.dump(autocorr, f)
+    with open(os.path.join(dirpath, "opt_counts.json"), "w") as f:
+        json.dump([list(c) for c in armstate.opt_counts], f)
+    with open(os.path.join(dirpath, "ae_params.msgpack"), "wb") as f:
+        f.write(fser.to_bytes(ae_params))
+    with open(os.path.join(dirpath, "manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2, default=str)
+
+
+def _coerce_epoch_key(k):
+    """Autocorrelation epoch keys are ints in production (step.py) but JSON forces them to strings —
+    restore the int where numeric, else keep the string (defensive)."""
+    try:
+        return int(k)
+    except (TypeError, ValueError):
+        return k
+
+
+def load_arm_state_from_disk(dirpath: str, ae_template):
+    """Inverse of save_arm_state_to_disk → (ArmState, ae_params, manifest).  ``ae_template`` is a fresh
+    BinaryAutoencoder().init(...) pytree giving the msgpack target treedef/dtypes.  MUST run OUTSIDE any
+    _x64() scope.  Raises FileNotFoundError on a missing file (the resume path gates with
+    require_checkpoint first; this is the loader, not the completeness guard)."""
+    import json
+    import flax.serialization as fser
+    assert not jax.config.jax_enable_x64, "load_arm_state_from_disk must run under float32 (no _x64 scope)"
+    key = np.load(os.path.join(dirpath, "dtm_key.npy"))
+    with open(os.path.join(dirpath, "autocorrelations.json")) as f:
+        autocorr = [{_coerce_epoch_key(k): float(v) for k, v in d.items()} for d in json.load(f)]
+    with open(os.path.join(dirpath, "opt_counts.json")) as f:
+        opt_counts = [list(c) for c in json.load(f)]
+    with open(os.path.join(dirpath, "ae_params.msgpack"), "rb") as f:
+        ae_params = fser.from_bytes(ae_template, f.read())
+    with open(os.path.join(dirpath, "manifest.json")) as f:
+        manifest = json.load(f)
+    return ArmState(key=key, autocorrelations=autocorr, opt_counts=opt_counts), ae_params, manifest
+
+
+def require_checkpoint(dirpath: str) -> None:
+    """FAIL-CLOSED completeness guard for a RESUME_FROM Stage-B checkpoint: every artifact (arm-state
+    files + the DTM epoch dir) must exist, else raise FileNotFoundError.  Raised from load_stage_b so it
+    propagates out of run_one_seed (NOT a BudgetWall) — a missing/partial checkpoint aborts the run loudly,
+    never silently retrains."""
+    needed = ["manifest.json", "dtm_key.npy", "autocorrelations.json", "opt_counts.json",
+              "ae_params.msgpack", os.path.join("dtm", "model_saving", "epoch_000")]
+    for rel in needed:
+        if not os.path.exists(os.path.join(dirpath, rel)):
+            raise FileNotFoundError(f"Stage-B checkpoint incomplete: missing {rel} under {dirpath}")
+
+
+def verify_manifest(manifest: dict, *, expect_seed: int, expect_raw_sha: str,
+                    expect_mode: Optional[str] = None, expect_n_train: Optional[int] = None) -> None:
+    """HARD-RAISE on a checkpoint/run mismatch that would invalidate the deterministic latent re-encode.
+    MANDATORY: seed + raw-split-sha (latents would differ).  OPTIONAL (checked only when provided):
+    mode + n_train — resuming a smoke checkpoint under MODE=full (or vice versa) re-encodes a DIFFERENT
+    n_train → silently-wrong latents; the guard fails it closed.  Git-SHA is DELIBERATELY not checked:
+    the cal-gate fix legitimately changes code; the caller records both SHAs in the run's provenance."""
+    if int(manifest.get("seed", -1)) != int(expect_seed):
+        raise RuntimeError(f"checkpoint seed {manifest.get('seed')} != requested {expect_seed}")
+    got = manifest.get("raw_split_sha256")
+    if got != expect_raw_sha:
+        raise RuntimeError(f"raw-split sha mismatch: checkpoint {got} != current {expect_raw_sha} "
+                           f"(dataset drift → latents would differ; refusing resume)")
+    if expect_mode is not None and manifest.get("mode") != expect_mode:
+        raise RuntimeError(f"checkpoint mode {manifest.get('mode')} != current {expect_mode} "
+                           f"(different config → wrong latents; refusing resume)")
+    if expect_n_train is not None and int(manifest.get("config", {}).get("n_train", -1)) != int(expect_n_train):
+        raise RuntimeError(f"checkpoint n_train {manifest.get('config', {}).get('n_train')} != current "
+                           f"{expect_n_train} (different split size → wrong latents; refusing resume)")
+
+
 def fork_checkpoint(dtm, workdir: str, *, epoch: int = 0) -> Tuple[object, object]:
     """Fork a Stage-B checkpoint into a matched control arm + a joint arm.
 

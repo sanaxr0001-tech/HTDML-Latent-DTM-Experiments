@@ -58,6 +58,9 @@ class StageCOps(Protocol):
     def pretrain_encoder(self, seed: int, clock: WallClock) -> Any: ...
     def train_latent_dtm(self, encoder: Any, seed: int, clock: WallClock) -> Any: ...
     def calibrate_tau(self, dtm: Any, clock: WallClock) -> dict: ...                 # {tau_hat_layers, cal_stable, failed_layer, cal_curves?, failed_axes?}
+    def resuming(self) -> bool: ...                                                  # True iff RESUME_FROM configured → skip Stage A+B
+    def persist_stage_b(self, model: Any, seed: int) -> None: ...                    # write <OUTDIR>/checkpoints/seed{N}/stage_b/ after Stage B
+    def load_stage_b(self, seed: int) -> Any: ...                                    # reconstruct the post-Stage-B _Model; RAISES (fail-closed) if missing/corrupt
     def estimate_probe_cost(self, L_traj: int) -> float: ...                          # seconds
     def fork(self, dtm: Any, workdir: str) -> Tuple[Any, Any]: ...                    # (control, joint)
     def epoch_block_pair(self, joint, control, encoder_lr: float, L_traj: int, clock: WallClock) -> BlockResult: ...
@@ -137,8 +140,15 @@ def _budget_wall_metrics(clock) -> SeedMetrics:
 
 def run_one_seed(ops, seed, clock, acc, const, workdir) -> SeedResult:
     try:
-        enc = ops.pretrain_encoder(seed, clock); clock.checkpoint(f"seed{seed}_stageA", raise_on_over=True)
-        dtm = ops.train_latent_dtm(enc, seed, clock); clock.checkpoint(f"seed{seed}_stageB", raise_on_over=True)
+        if ops.resuming():
+            # RESUME_FROM: reload the persisted post-Stage-B _Model, skipping Stage A+B.  Fail-closed —
+            # load_stage_b raises (FileNotFoundError/RuntimeError, NOT BudgetWall) on a missing/mismatched
+            # checkpoint, so it propagates out and aborts the run; NEVER a silent retrain of this seed.
+            dtm = ops.load_stage_b(seed)
+        else:
+            enc = ops.pretrain_encoder(seed, clock); clock.checkpoint(f"seed{seed}_stageA", raise_on_over=True)
+            dtm = ops.train_latent_dtm(enc, seed, clock); clock.checkpoint(f"seed{seed}_stageB", raise_on_over=True)
+            ops.persist_stage_b(dtm, seed)   # persist the trained Stage-B so a future re-run skips A+B
         rc = reconfirm_l_traj(ops, dtm, clock, const)
         if rc.status == "cal_fail":
             m = build_seed_metrics(BlockResult([], [], float("inf"), float("inf"), 0.0, 0.0),

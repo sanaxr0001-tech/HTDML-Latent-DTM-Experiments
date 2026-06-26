@@ -1,5 +1,6 @@
 # tests/test_run_stage_c_script.py
 import json, os
+import pytest
 from scripts import run_stage_c as R
 
 def test_parse_config_env_defaults_and_overrides():
@@ -7,6 +8,16 @@ def test_parse_config_env_defaults_and_overrides():
     assert mode == "full" and seeds == [1, 2] and const.GPU_H_CAP == 4.0 and const.ESS_min == 10.0
     seeds_s, _c, mode_s = R.parse_config({"MODE": "smoke"})
     assert mode_s == "smoke" and len(seeds_s) == 1            # smoke defaults to a single seed
+
+def test_parse_config_full_requires_explicit_budget_h():
+    """Footgun fix: MODE=full with NO BUDGET_H must FAIL LOUD pre-GPU (a silent 4.0 default would
+    guillotine seed-2's 200-epoch Stage B at ~5.1 GPU-h/seed). Smoke keeps the cheap 4.0 default."""
+    with pytest.raises(ValueError):
+        R.parse_config({"MODE": "full"})                       # no BUDGET_H → loud, pre-GPU
+    _s, const, mode = R.parse_config({"MODE": "full", "BUDGET_H": "16.0"})
+    assert mode == "full" and const.GPU_H_CAP == 16.0
+    _ss, const_s, mode_s = R.parse_config({"MODE": "smoke"})    # smoke default stays 4.0
+    assert mode_s == "smoke" and const_s.GPU_H_CAP == 4.0
 
 def test_write_outputs_json_before_report_and_exit_code(tmp_path):
     res = {"outcome": "HTDML-MARGIN-NEGATIVE", "constants": {}, "provenance": {}, "budget": {},
@@ -26,6 +37,15 @@ def test_build_provenance_has_git_and_backend_keys():
     prov = R.build_provenance()
     for k in ("git_sha", "env_freeze", "jax_backend", "is_patch_live"):
         assert k in prov
+
+def test_realops_stage_b_dir_and_resuming():
+    """RealOps carries outdir + resume_from; the pure path/predicate helpers are CPU-safe (no jax)."""
+    _s, const, _m = R.parse_config({"MODE": "smoke"})
+    ops = R.RealOps(const, smoke=True, outdir="/o", resume_from=None)
+    assert ops.resuming() is False
+    assert ops._stage_b_dir("/o", 2) == os.path.join("/o", "checkpoints", "seed2", "stage_b")
+    ops_r = R.RealOps(const, smoke=True, outdir="/o", resume_from="/r")
+    assert ops_r.resuming() is True
 
 def test_resolve_outdir_prefers_arg_then_env_then_default():
     """OUTDIR knob (exp2): explicit arg > OUTDIR env > default ../results, so run-2 can write to its own

@@ -1,4 +1,6 @@
 # tests/test_orchestrator.py
+import pytest
+
 import htdml  # bootstrap vendored paths (conftest also does this)
 from htdml import orchestrator as O
 from htdml.driver import SeedMetrics
@@ -217,3 +219,49 @@ def test_run_is_deterministic():
                                const=O.FrozenConstants(max_joint_epochs=2), workdir="/tmp/x",
                                provenance={}, clock=_Clock())
     assert mk()["outcome"] == mk()["outcome"]
+
+
+# ---------------------------------------------------------------------------
+# exp2: Stage-B checkpoint persist + RESUME_FROM wiring
+# ---------------------------------------------------------------------------
+class _PersistSeedOps(_SeedOps):
+    """Not-resuming: records persist_stage_b calls so we can assert it fires after Stage B."""
+    def __init__(self, **kw):
+        super().__init__(**kw); self.persisted = []
+    def persist_stage_b(self, model, seed): self.persisted.append((model, seed))
+
+class _ResumeOps(_SeedOps):
+    """Resuming: load_stage_b returns a sentinel model (or raises); Stage A/B must be skipped."""
+    def __init__(self, *, load_result=None, load_raises=None, **kw):
+        super().__init__(**kw)
+        self._load_result, self._load_raises = load_result, load_raises
+        self.pretrained = False; self.trained = False; self.persisted = []; self.loaded = []
+    def resuming(self): return True
+    def pretrain_encoder(self, seed, clk): self.pretrained = True; return super().pretrain_encoder(seed, clk)
+    def train_latent_dtm(self, enc, seed, clk): self.trained = True; return super().train_latent_dtm(enc, seed, clk)
+    def persist_stage_b(self, model, seed): self.persisted.append((model, seed))
+    def load_stage_b(self, seed):
+        self.loaded.append(seed)
+        if self._load_raises: raise self._load_raises
+        return self._load_result
+
+_OK_CAL = {"tau_hat_layers": [1, 1, 1, 1], "cal_stable": True, "failed_layer": None}
+
+def test_run_one_seed_persists_after_stage_b_when_not_resuming():
+    ops = _PersistSeedOps(cal=_OK_CAL)
+    O.run_one_seed(ops, 1, _Clock(), _acc(), O.FrozenConstants(max_joint_epochs=2), "/tmp/x")
+    assert ops.forked is True                                  # proceeded into Stage C (not resuming)
+    assert ops.persisted == [(("dtm", 1), 1)]                  # persisted the trained _Model once, seed 1
+
+def test_run_one_seed_resume_skips_stage_a_b():
+    ops = _ResumeOps(load_result=("resumed_dtm", 1), cal=_OK_CAL)
+    sr = O.run_one_seed(ops, 1, _Clock(), _acc(), O.FrozenConstants(max_joint_epochs=2), "/tmp/x")
+    assert ops.loaded == [1] and ops.pretrained is False and ops.trained is False  # A+B skipped
+    assert ops.persisted == []                                 # no re-persist on resume
+    assert ops.forked is True and sr.token in O.TOKENS_ALL     # reached Stage C, normal verdict
+
+def test_run_one_seed_resume_fail_closed_propagates():
+    ops = _ResumeOps(load_raises=FileNotFoundError("missing seed2 checkpoint"), cal=_OK_CAL)
+    with pytest.raises(FileNotFoundError):
+        O.run_one_seed(ops, 2, _Clock(), _acc(), O.FrozenConstants(), "/tmp/x")
+    assert ops.trained is False and ops.forked is False        # NOT swallowed into BUDGET-WALL; no retrain

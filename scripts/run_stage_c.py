@@ -18,7 +18,16 @@ from scripts.calib_logic import WallClock  # noqa: E402
 
 def parse_config(env):
     mode = env.get("MODE", "full").lower()
-    budget_h = float(env.get("BUDGET_H", "4.0"))
+    # BUDGET_H footgun fix: MODE=full REQUIRES an explicit BUDGET_H — a silent 4.0 default would become a
+    # hard WallClock cap and guillotine seed-2's 200-epoch Stage B (~5.1 GPU-h/seed) mid-run.  Force the
+    # operator to declare intent (the conferred paid cap is 16.0; see p0_decision.md).  Smoke keeps 4.0.
+    if "BUDGET_H" in env:
+        budget_h = float(env["BUDGET_H"])
+    elif mode == "smoke":
+        budget_h = 4.0
+    else:
+        raise ValueError("BUDGET_H must be set explicitly for MODE=full (paid run); "
+                         "refusing a silent default wall-clock cap (conferred cap = 16.0, see p0_decision.md)")
     if "SEEDS" in env:
         seeds = [int(s) for s in env["SEEDS"].split(",") if s.strip()]
     else:
@@ -140,10 +149,126 @@ class RealOps:
     GPU imports are LAZY (inside the methods) so this module stays CPU-importable — parse_config /
     write_outputs / build_provenance must import without touching the GPU (the CPU helper tests)."""
 
-    def __init__(self, const, *, smoke):
+    def __init__(self, const, *, smoke, outdir=None, resume_from=None):
         self.const = const
         self.smoke = smoke
         self.cfg = _SmokeCfg() if smoke else _FullCfg()
+        self.outdir = outdir              # where checkpoints/ is written (= the run OUTDIR)
+        self.resume_from = resume_from    # RESUME_FROM root (contains seed{N}/stage_b/) | None
+
+    # ------------------------------------------------------------------ Stage-B checkpoint (resume) — paths
+    def _stage_b_dir(self, root, seed):
+        """Pure path math (CPU-safe, no jax): <root>/checkpoints/seed{N}/stage_b/."""
+        return os.path.join(root, "checkpoints", f"seed{int(seed)}", "stage_b")
+
+    def resuming(self):
+        return self.resume_from is not None
+
+    # ------------------------------------------------------------------ Stage-B checkpoint (resume) — GPU
+    # Smoke-only (no unit test, like the rest of RealOps).  Reuses the PROVEN fork machinery
+    # (capture_arm_state + DTM.save_epoch + DTM.load + restore_out_of_band) + the pure driver helpers.
+    # MUST run OUTSIDE any _x64() scope (float32 DTM/Flax templates) — they are called from run_one_seed,
+    # never inside the compat loss/grad, so this holds; the disk helpers assert it.
+    CAL_GATE_NOTE = ("Stage-B trained under the PRE-FIX cal-gate; resumed Stage C recomputes calibrate_tau "
+                     "under the small-tau gate fix. Verdict attributable to THIS checkpoint + changed gate.")
+
+    def _manifest(self, seed, armstate):
+        from htdml import driver as DRV
+        from scripts import smoke_common as sm
+        from scripts.dataset_gate import _sha256
+        c, cf = self.const, self.cfg
+        return {"schema": DRV._CKPT_SCHEMA, "seed": int(seed), "mode": "smoke" if self.smoke else "full",
+                "code_git_sha": build_provenance()["git_sha"],
+                "raw_split_sha256": _sha256(sm.DATASET_NPZ_PATH),
+                "config": {"cfg_class": type(cf).__name__, "n_train": cf.n_train, "n_test": cf.n_test,
+                           "ae_steps": cf.ae_steps, "stage_b_epochs": cf.stage_b_epochs,
+                           "target_classes": list(sm.SMOKE_TARGET_CLASSES),
+                           "num_label_spots": sm.SMOKE_NUM_LABEL_SPOTS,
+                           "GPU_H_CAP": c.GPU_H_CAP, "lambda_joint": c.lambda_joint, "ESS_min": c.ESS_min,
+                           "C": c.C, "L_traj": c.L_traj, "N_chains": c.N_chains, "N_R": c.N_R},
+                "opt_counts": [list(x) for x in armstate.opt_counts],
+                "cal_gate_version_at_stage_b": "pre-fix", "cal_gate_note": self.CAL_GATE_NOTE}
+
+    def persist_stage_b(self, model, seed):
+        """Write the Stage-B checkpoint under <outdir>/checkpoints/seed{N}/stage_b/ — DTM weights via
+        DTM.save_epoch (same idiom as fork_checkpoint:576-577) + the out-of-band ArmState/ae_params/manifest."""
+        from htdml import driver as DRV
+        dtm = model.ldtm.dtm
+        sb = self._stage_b_dir(self.outdir, seed)
+        armstate = DRV.capture_arm_state(dtm)                 # key + per-step autocorr + opt_counts
+        dtm.logging_and_saving_dir = os.path.join(sb, "dtm")  # save_epoch writes <dir>/model_saving/
+        dtm.save_epoch(0)
+        base = os.path.join(sb, "dtm", "model_saving")
+        if not os.path.isdir(os.path.join(base, "epoch_000")):
+            raise RuntimeError(f"save_epoch did not write epoch_000 under {base}")
+        DRV.save_arm_state_to_disk(armstate, model.enc.ae_params, self._manifest(seed, armstate), sb)
+        print(f"[persist seed{seed}] Stage-B checkpoint written to {sb}", flush=True)
+
+    def load_stage_b(self, seed):
+        """Reconstruct the post-Stage-B _Model from <resume_from>/seed{N}/stage_b/.  Fail-closed
+        (require_checkpoint + verify_manifest raise, NOT BudgetWall).  Re-encodes the latent dataset
+        deterministically (encode is RNG-free; the raw split sha is verified) and re-applies the six
+        post-construction static fields DTM.load reverts."""
+        import functools
+        import jax.numpy as jnp
+        import jax.random as jr
+        from htdml import driver as DRV
+        from htdml.autoencoder import BinaryAutoencoder, encode as ae_encode
+        from harness import probe_primitives as pp
+        from scripts import smoke_common as sm
+        from scripts.dataset_gate import _sha256
+        from thrmlDenoising.DTM import DTM
+
+        sb = self._stage_b_dir(self.resume_from, seed)
+        DRV.require_checkpoint(sb)                                          # fail-closed on missing/partial
+        ae_template = BinaryAutoencoder().init(jr.PRNGKey(0), jnp.ones((2, 28, 28, 1), jnp.float32) * 0.5)
+        armstate, ae_params, manifest = DRV.load_arm_state_from_disk(sb, ae_template)
+        DRV.verify_manifest(manifest, expect_seed=int(seed), expect_raw_sha=_sha256(sm.DATASET_NPZ_PATH),
+                            expect_mode=("smoke" if self.smoke else "full"), expect_n_train=self.cfg.n_train)
+        print(f"[RESUME seed{seed}] stage-B sha={str(manifest['code_git_sha'])[:12]} "
+              f"(current {str(build_provenance()['git_sha'])[:12]}); {manifest['cal_gate_note']}", flush=True)
+
+        # (1) encoder + raw split (deterministic from the sha-verified npz)
+        cfg = self.cfg
+        tr_img, tr_lab, te_img, te_lab = sm.load_fashion_mnist(n_train=cfg.n_train, n_test=cfg.n_test)
+        enc = _Encoder(ae_params, tr_img, tr_lab, te_img, te_lab)
+        # (2) deterministic latent re-encode — IDENTICAL call to train_latent_dtm
+        encode_fn = functools.partial(ae_encode, ae_params)
+        latent_ds = sm.build_latent_dataset(encode_fn, tr_img, tr_lab, te_img, te_lab,
+                                            target_classes=sm.SMOKE_TARGET_CLASSES,
+                                            num_label_spots=sm.SMOKE_NUM_LABEL_SPOTS)
+        # (3) DTM weights + out-of-band static (DTM.load drops key+autocorr; restore_out_of_band re-injects).
+        #     DTM.load → DTM.__init__ → load_dataset("smoke_testing_196_1_3") REQUIRES the registered smoke
+        #     fixture smoke_test_data_dict[(196,1,3)] — only build_companion_dtm registers it, and the resume
+        #     path never calls that.  Register the SAME 50-row fixture here (mirrors smoke_common:132-137);
+        #     its content is irrelevant (step 5 overwrites train/test_dataset), but the key + 50-row batch
+        #     must exist for the constructor (it forces batch_size=50, matching the saved config.yaml).
+        from thrmlDenoising.smoke_testing import smoke_test_data_dict as _sdict
+        if (sm.SMOKE_N_IMG, sm.SMOKE_NGRAY, sm.SMOKE_NCLS) not in _sdict:
+            _rng = np.random.default_rng(int(seed))
+            _sdict[(sm.SMOKE_N_IMG, sm.SMOKE_NGRAY, sm.SMOKE_NCLS)] = {
+                "image": jnp.asarray(_rng.integers(0, 2, (50, sm.SMOKE_N_IMG)), dtype=jnp.bool_),
+                "label": jnp.asarray(_rng.integers(0, sm.SMOKE_NCLS, (50,)), dtype=jnp.int32),
+            }
+        loaded = DTM.load(os.path.join(sb, "dtm", "model_saving"), epoch=0)
+        DRV.restore_out_of_band(loaded, armstate)
+        # (4) provenance guard (mirror fork_checkpoint:594) — opt-count round-trip
+        for i, st in enumerate(loaded.steps):
+            if pp._find_counts(st.opt_state) != armstate.opt_counts[i]:
+                raise RuntimeError(f"resume opt-state counts mismatch at step {i}")
+        # (5) re-apply the SIX post-construction static fields DTM.load reverts (smoke_common:155-164 /
+        #     fork's run_stage_c.py:256-263) — else compute_autocorr/generate/label-width/log_file break
+        train_ds, test_ds, ohtl = latent_ds
+        loaded.train_dataset = {k: jnp.asarray(v) for k, v in train_ds.items()}
+        loaded.test_dataset = {k: jnp.asarray(v) for k, v in test_ds.items()}
+        loaded.one_hot_target_labels = jnp.asarray(ohtl)
+        loaded.n_image_pixels = int(train_ds["image"].shape[1])
+        loaded.n_label_nodes = int(train_ds["label"].shape[1])
+        loaded.log_file = None
+        # (6) wrap + probe batch (matches train_latent_dtm:177-182)
+        ldtm = sm.LatentDTM(loaded, decode_fn=sm.make_decode_fn(ae_params))
+        batch = dict(image=jnp.asarray(train_ds["image"]), label=jnp.asarray(train_ds["label"]), idx=0)
+        return _Model(ldtm, enc, latent_ds, batch)
 
     # ------------------------------------------------------------------ STAGE A — pretrain encoder
     def pretrain_encoder(self, seed, clock):
@@ -463,8 +588,9 @@ def main(env=None, outdir=None):
     env = os.environ if env is None else env
     seeds, const, mode = parse_config(env)
     outdir = resolve_outdir(env, outdir)
+    resume_from = env.get("RESUME_FROM") or None    # checkpoints-root (contains seed{N}/stage_b/); skips A+B
     clock = WallClock(cap_seconds=const.GPU_H_CAP * 3600.0)
-    ops = RealOps(const, smoke=(mode == "smoke"))
+    ops = RealOps(const, smoke=(mode == "smoke"), outdir=outdir, resume_from=resume_from)
     result = O.run_stage_c(ops, seeds=seeds, acc=AcceptanceConstants(
         ESS_min=const.ESS_min, C=const.C, L_traj=const.L_traj, N_chains=const.N_chains, N_R=const.N_R,
         GPU_H_CAP=const.GPU_H_CAP),

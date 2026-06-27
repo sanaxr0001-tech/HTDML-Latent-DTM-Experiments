@@ -19,6 +19,18 @@ def test_parse_config_full_requires_explicit_budget_h():
     _ss, const_s, mode_s = R.parse_config({"MODE": "smoke"})    # smoke default stays 4.0
     assert mode_s == "smoke" and const_s.GPU_H_CAP == 4.0
 
+def test_parse_config_lambda_joint_env_override_and_default():
+    """exp3 lower-λ sweep knob: LAMBDA_JOINT overrides the joint-arm steering strength
+    (FrozenConstants.lambda_joint, a run param — NOT a frozen-five PIN); unset keeps the frozen 1.0.
+    The override must not disturb the frozen-five PINS (L_traj/N_chains/...)."""
+    _s, const, _m = R.parse_config({"MODE": "full", "BUDGET_H": "4.0"})
+    assert const.lambda_joint == 1.0                                  # default: frozen 1.0 preserved
+    _s2, const2, _m2 = R.parse_config({"MODE": "full", "BUDGET_H": "4.0", "LAMBDA_JOINT": "0.3"})
+    assert const2.lambda_joint == 0.3                                 # override honored
+    _s3, const3, _m3 = R.parse_config({"MODE": "smoke", "LAMBDA_JOINT": "0.5"})
+    assert const3.lambda_joint == 0.5                                 # works in smoke too
+    assert const3.L_traj == 400 and const3.N_chains == 4             # frozen-five PINS untouched
+
 def test_write_outputs_json_before_report_and_exit_code(tmp_path):
     res = {"outcome": "HTDML-MARGIN-NEGATIVE", "constants": {}, "provenance": {}, "budget": {},
            "seeds": [], "two_seed": {"run_token": "HTDML-MARGIN-NEGATIVE"}}

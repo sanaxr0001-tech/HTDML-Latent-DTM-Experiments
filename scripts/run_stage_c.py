@@ -33,11 +33,15 @@ def parse_config(env):
     else:
         seeds = [1] if mode == "smoke" else [1, 2]
     const = O.FrozenConstants(GPU_H_CAP=budget_h)        # ESS_min/C/L_traj/... frozen defaults (PINS)
+    from dataclasses import replace
+    if "LAMBDA_JOINT" in env:
+        # exp3 lower-λ sweep knob: lambda_joint is the Stage-C joint-arm steering strength (control stays
+        # 0.0); it is a RUN PARAM, NOT one of the frozen-five PINS.  Unset → keeps the frozen 1.0 default.
+        const = replace(const, lambda_joint=float(env["LAMBDA_JOINT"]))
     if mode == "smoke":
         # plumbing smoke: bound the reject loop to ONE epoch-block (epochs_per_block=2 → 1 block).  The
         # loop logic itself is unit-tested with fakes; the smoke only needs to prove the GPU wiring of a
         # single fork→epoch→probe→FID→route block.  The full/paid run keeps the production max_joint_epochs.
-        from dataclasses import replace
         const = replace(const, max_joint_epochs=2)
     return seeds, const, mode
 

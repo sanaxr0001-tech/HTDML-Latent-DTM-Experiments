@@ -1,4 +1,4 @@
-# exp3 — lower-λ sweep → `HTDML-MARGIN-NEGATIVE` (no demonstrable steering effect; apparent per-seed pass is control-denominator noise)
+# exp3 — lower-λ sweep → `HTDML-MARGIN-NEGATIVE` (no demonstrable steering effect; apparent per-seed pass not distinguishable from control-denominator noise)
 
 **RAN on H200 2026-06-27.** Resume sweep over `λ ∈ {0.5, 0.3, 0.1}` on exp2's persisted Stage-B
 checkpoints (`RESUME_FROM`, Stage A+B skipped), code `19cd46f`, `MODE=full SEEDS=1,2`; all three runs
@@ -25,8 +25,10 @@ The driver emitted a per-*seed* `HTDML-MARGIN-POSITIVE` token for **seed 1 at λ
 gate passed), but **this is not evidence of a steering effect** — it is consistent with noise in the
 worst-layer control denominator of the gate ratio (§"Why the per-seed pass is not a steering effect").
 **Conclusion: no demonstrable effect of the mixing-aware steering on the finite-budget mixing margin, at
-any λ in the ladder.** Both improvement routes (Q and τ) are null once the gate's estimator variance is
-accounted for.
+any λ in the ladder** — once the gate's estimator variance is accounted for, neither route shows a
+clearance distinguishable from null. **Equally, exp3 cannot *refute* a steering effect:** at n=2 with this
+noisy ruler, a true acceleration smaller than the ~2.5× run-to-run control swing would be invisible. The
+result is **unidentified, not proven-zero** — the current ruler cannot adjudicate either way.
 
 ---
 
@@ -55,7 +57,7 @@ accepted Stage-C state, lower-quartile / worst-layer per the gate definitions.)
 
 ---
 
-## Why the per-seed pass is **not** a steering effect — control-denominator noise
+## Why the per-seed pass is not distinguishable from control-denominator noise
 
 The τ-leg is `max₄(joint τ) / max₄(control τ) ≤ 0.75×`. The λ=0 control arm is forked from the *same*
 Stage-B checkpoint and is the *same condition* across all of a seed's runs, so its worst-layer `τ_int,Y`
@@ -66,9 +68,10 @@ should be ~one number per seed. It is not — and the "passes" ride entirely on 
 | 1.0 | 1.242 | 1.198 | 1.04× | 20.9 |
 | 0.5 | 0.911 | 0.917 | 0.99× | 27.3 |
 | 0.3 | 1.394 | **2.293** | 0.61× | **10.9** |
-| 0.1 | 1.107 | **2.152** | 0.52× | **11.6** |
+| 0.1 | 1.107 | **2.152** | 0.51× | **11.6** |
 
-Six independent reasons the seed-1 passes are noise, not signal:
+Six independent reasons the noise explanation is far more parsimonious than a steering signal — the
+passes are *not distinguishable* from control-denominator noise, not *proven* to be noise:
 
 1. **The control denominator is non-reproducible.** Seed-1 λ=0 control worst-τ swings **0.92 → 2.29 →
    2.15** (~2.5×) across identical-code runs — for a quantity that should be fixed. The two passes are
@@ -78,12 +81,14 @@ Six independent reasons the seed-1 passes are noise, not signal:
    denominator rose, not because the steered chain mixed faster.
 3. **The passing runs have anomalously poorly-mixed control arms.** Control worst-ESS bottoms at **10.9
    / 11.6**, just above the `ESS_min=10` floor, precisely at λ=0.3/0.1 — the low-ESS ⇔ high-τ signature
-   of a bad control draw. (This is the *same* signature used to disqualify the λ=0.5 seed-2 Q-route
-   "lift", whose control ESS was degraded — applied symmetrically, it disqualifies the τ passes too.)
-4. **`max₄` compares different physical layers.** At λ=0.3 the slow control layer is layer-3 (2.29; joint
-   there 0.67) but joint layer-1 *rose* (1.16→1.39); at λ=0.1 the slow control layer is layer-1, with
-   other joint layers rising. A different layer drives the max each run — a noisy-max artifact, not a
-   reproducible per-layer acceleration.
+   of a badly-mixed control *draw*, which is what inflates the ratio. (Distinct from — but pointing the
+   same way as — the λ=0.5 seed-2 Q-route "lift", which fails on a *different* leg: its **joint** ESS
+   degrades below control, 18.3 < 21.2, failing ESS-non-degradation; the control ESS there, 21.2, is fine.)
+4. **`max₄` compares different physical layers.** At λ=0.3 the slowest control layer is layer-3 (control
+   τ 2.29; the steered chain there is 0.67) — but at layer-1 the steered τ (1.39) sits *above* its own
+   control (1.16), so the steering did not accelerate that layer; the ratio fell only because the
+   control's slowest layer spiked. At λ=0.1 the slowest control layer is instead layer-1. A different
+   layer drives the max each run — a noisy-max artifact, not a reproducible per-layer acceleration.
 5. **The reliable mixing measure inverts the story.** The deterministic reconfirm `τ̂` (bit-identical
    across all runs) is **seed-1 = 2.42, seed-2 = 3.67** → **seed 2 is the slower-mixing seed**, the
    opposite of any "seed 1 is slow / has headroom" reading.
@@ -91,36 +96,51 @@ Six independent reasons the seed-1 passes are noise, not signal:
    high-variance worst-of-4 ruler; two sub-0.75 τ ratios (both seed-1, both lowest λ) are well within
    what denominator noise produces, uncorrected for multiplicity.
 
-**Both routes are null.** Q-route: relaxes to control (seed-2 lq-Q 1.33×→1.07×→1.01×); its single
-apparent clearance (λ=0.5 seed-2, 1.33×) coincides with ESS degradation (18.3 < 21.2). τ-route:
-control-denominator noise, above. **No λ produces a clearance attributable to the steering.**
+**Quantitatively, the strongest pro-effect summary is null.** Metastable stalls (worst-layer `τ_int,Y >
+2`) occur in the seed-1 control arm in **2/6** runs but the steered arm in **0/6** — Fisher exact **p ≈
+0.46**; and at the two passes the steered chain is *slower* than its own control on **5 of 8** non-stall
+layers (reshuffling, not acceleration), the lone "win" each run being the single max-picked control-stall
+layer. The 2/2 paired stall-avoidance is a real but **underpowered** observation — a hypothesis fix (a)
+below would adjudicate two-sided, **not** a refuted one.
+
+**Both routes are consistent with null** (no clearance distinguishable from noise). Q-route: relaxes to
+control (seed-2 lq-Q 1.33×→1.07×→1.01×); its single apparent clearance (λ=0.5 seed-2, 1.33×) fails the
+ESS-non-degradation leg (joint ESS 18.3 < control 21.2). τ-route: control-denominator noise, above. **No
+λ produces a clearance distinguishable from control-denominator noise.**
 
 ---
 
 ## Methodological takeaway (the durable contribution)
 
 At these probe lengths (`L_traj=400`, `K=50`, `B=400`), the **worst-layer-max `τ_int,Y` ratio is
-noise-dominated**: the λ=0 control's `max₄ τ` varies ~2.5× run-to-run at fixed seed. The relative-ruler
-discipline (`../../pre-commitment.md §Half-Sokal T_O bias`) correctly cancels the multiplicative *bias*
-of the half-Sokal estimator — but a constant bias cancels in a ratio while **estimator variance does
-not**, and the gate uses a *max over 4 short-chain estimates* (variance-amplifying). **Per-seed gate
-passes are therefore uninterpretable as effects without a control-variance estimate.** The minimal fixes
-for any future effect claim: (a) repeated λ=0 control draws at fixed seed to measure the worst-τ
-run-to-run variance; (b) longer trajectories (`L_traj ≫ 400`) to stabilize `max₄`; (c) paired per-layer
-τ tests instead of a worst-of-4 ratio; then (d) `n > 2` seeds. This reliability caveat is the
-transferable result of exp3.
+plausibly noise-dominated** — the estimator variance is not yet formally quantified (see fix (a)). Across
+the n=3 shared-code runs the λ=0 control's `max₄ τ` varies **~2.5× (seed-1), ~1.45× (seed-2)** at fixed
+seed, and the steered numerator also varies ~1.5× — it is a *noisy ratio of two short-chain max-of-4
+estimators*, not merely a noisy denominator. The relative-ruler discipline
+(`../../pre-commitment.md §Half-Sokal T_O bias`) cancels the multiplicative *bias* of the half-Sokal
+estimator (a common factor in a joint/control ratio — exact only if both arms share the same bias,
+approximately true in the same short-`L` regime) — but a constant bias cancels in a ratio while
+**estimator variance does not**, and a *max over 4 short-chain estimates* is variance-amplifying.
+**Per-seed gate passes are therefore uninterpretable as effects without a control-variance estimate.**
+The minimal fixes for any future effect claim: (a) repeated λ=0 control draws at fixed seed to measure
+the worst-τ run-to-run variance — and, **two-sided**, to test whether the steered arm has a
+*systematically lower* stall rate (the 2/2 paired stall-avoidance above); (b) longer trajectories
+(`L_traj ≫ 400`) to stabilize `max₄`; (c) paired per-layer τ tests instead of a worst-of-4 ratio; then
+(d) `n > 2` seeds. This reliability caveat is the transferable result of exp3.
 
 ---
 
 ## Prediction vs outcome (vs `pre-commitment.md`)
 
-- **Pre-registered modal prediction:** channel-negative ("no λ clears the margin"). → **CONFIRMED, and
-  more strongly** — not only no robust positive, but no demonstrable per-seed effect: the apparent
-  passes are control-denominator noise. The registered Q-centric reasoning under-specified the failure
-  (it predicted Q→control; the τ-leg also yields only noise), but the **direction (negative) was correct.**
+- **Pre-registered modal prediction:** channel-negative ("no λ clears the margin"). → **CONFIRMED** — no
+  robust positive, and no demonstrable per-seed effect either: the apparent passes are not distinguishable
+  from control-denominator noise. The registered Q-centric reasoning under-specified the failure (it
+  predicted Q→control; the τ-leg too yields only a noise-consistent signal), but the **direction
+  (negative) was correct.**
 - **Decisive-either-way clause:** "any λ clears on BOTH seeds → POSITIVE; none → channel negative." →
-  **Channel-negative**, with the per-seed positives explicitly attributed to noise after adversarial
-  verification. No acceptance bar moved; frozen-five and the 7-criterion predicate unchanged.
+  **Channel-negative**, with the per-seed positives shown — most parsimoniously — to be control-denominator
+  noise after adversarial verification. No acceptance bar moved; frozen-five and the 7-criterion predicate
+  unchanged.
 
 ---
 
@@ -144,11 +164,19 @@ transferable result of exp3.
 ## Scope & limitations (front and center)
 
 - **No demonstrable effect.** The headline result is a **negative**; the per-seed gate passes are a
-  measured curiosity attributable to control-denominator noise, not a steering signal.
-- **Estimator-variance limit.** The gate's worst-layer-max τ ratio is noise-dominated at `L_traj=400`;
-  this, not seed biology, governs the per-seed passes (see Methodological takeaway).
-- **n = 2 seeds** — clearance *rate* unestimable regardless; but here even the per-seed signal is null.
-- **Degenerate absolute-quality regime:** absolute FID ≈ 280–309 in *both* arms; "quality held" means
+  measured curiosity most parsimoniously attributable to control-denominator noise rather than a steering
+  signal.
+- **Underpowered in both directions.** The same estimator variance that prevents reading the per-seed
+  passes as a *positive* equally prevents exp3 from *refuting* a genuine steering effect — a true
+  acceleration below the ~2.5× run-to-run control swing would be undetectable at L_traj=400, n=2. **exp3
+  does not show the steering is ineffective; it shows the current ruler cannot adjudicate either way.**
+- **Estimator-variance limit.** The gate's worst-layer-max τ ratio is *plausibly* noise-dominated at
+  `L_traj=400` (the n=3 control draws span ~1.45–2.5×; variance not yet formally quantified); this, not
+  seed biology, most parsimoniously governs the per-seed passes (see Methodological takeaway).
+- **n = 2 seeds** — clearance *rate* unestimable regardless; and the per-seed signal here is not
+  distinguishable from noise.
+- **Degenerate absolute-quality regime:** absolute FID ≈ 280–326 in *both* arms (joint ~280–309, control
+  ~287–326); "quality held" means
   joint ≈ control (BCE within 5%, FID within 10%), **not** that images are good. Relevant when judging
   whether τ differences are physically meaningful.
 - **Companion-divergent setup:** `44_12` (not upstream `60_12`), Fashion-MNIST, the **deterministic

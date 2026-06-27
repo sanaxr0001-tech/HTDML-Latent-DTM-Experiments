@@ -214,6 +214,7 @@ class RealOps:
         deterministically (encode is RNG-free; the raw split sha is verified) and re-applies the six
         post-construction static fields DTM.load reverts."""
         import functools
+        import numpy as np
         import jax.numpy as jnp
         import jax.random as jr
         from htdml import driver as DRV

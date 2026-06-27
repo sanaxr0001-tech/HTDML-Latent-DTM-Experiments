@@ -23,9 +23,11 @@ run_stage_c_smoke.json
 
 # Stage-B resume checkpoints (RESUME_FROM): heavy artifacts gitignored; manifest.json stays committable
 # for provenance (records the seed/config/data-hash/code-SHA a resumed Stage C ran against).
-checkpoints/**/*.eqx
-checkpoints/**/*.npy
-checkpoints/**/*.msgpack
-checkpoints/**/*.yaml
-checkpoints/**/autocorrelations.json
-checkpoints/**/opt_counts.json
+# NB **/ prefix so it matches checkpoints/ at ANY depth (e.g. experiments/exp2-cal-gate-fix/artifacts/
+# checkpoints/), not just a repo-root checkpoints/ — the run's OUTDIR is nested.
+**/checkpoints/**/*.eqx
+**/checkpoints/**/*.npy
+**/checkpoints/**/*.msgpack
+**/checkpoints/**/*.yaml
+**/checkpoints/**/autocorrelations.json
+**/checkpoints/**/opt_counts.json

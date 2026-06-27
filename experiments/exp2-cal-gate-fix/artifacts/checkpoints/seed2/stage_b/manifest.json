@@ -1,0 +1,47 @@
+{
+  "schema": "htdml-stage-b-checkpoint/v1",
+  "seed": 2,
+  "mode": "full",
+  "code_git_sha": "a26dbce50288e62ffb30f1ac8aeb91136c024eca",
+  "raw_split_sha256": "9e7e99291d61ddfc8623256c146d49a9203938f8b02fb994b7ee6fdd64f4fd8b",
+  "config": {
+    "cfg_class": "_FullCfg",
+    "n_train": 6000,
+    "n_test": 1000,
+    "ae_steps": 2000,
+    "stage_b_epochs": 200,
+    "target_classes": [
+      0,
+      1,
+      2
+    ],
+    "num_label_spots": 1,
+    "GPU_H_CAP": 16.0,
+    "lambda_joint": 1.0,
+    "ESS_min": 10.0,
+    "C": 5.0,
+    "L_traj": 400,
+    "N_chains": 4,
+    "N_R": 16
+  },
+  "opt_counts": [
+    [
+      24000,
+      24000
+    ],
+    [
+      24000,
+      24000
+    ],
+    [
+      24000,
+      24000
+    ],
+    [
+      24000,
+      24000
+    ]
+  ],
+  "cal_gate_version_at_stage_b": "pre-fix",
+  "cal_gate_note": "Stage-B trained under the PRE-FIX cal-gate; resumed Stage C recomputes calibrate_tau under the small-tau gate fix. Verdict attributable to THIS checkpoint + changed gate."
+}

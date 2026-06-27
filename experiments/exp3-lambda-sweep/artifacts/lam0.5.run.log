@@ -1,0 +1,231 @@
+[RESUME seed1] stage-B sha=a26dbce50288 (current 19cd46f7cc60); Stage-B trained under the PRE-FIX cal-gate; resumed Stage C recomputes calibrate_tau under the small-tau gate fix. Verdict attributable to THIS checkpoint + changed gate.
+autocorrelations at epoch 0: step 0: 0.02981053665280342 step 1: 0.01755673438310623 step 2: 0.026431454345583916 step 3: 0.013493821024894714 
+Time to compute autocorrelations: 31.1s
+autocorrelations at epoch 1: step 0: 0.06293637305498123 step 1: 0.028468120843172073 step 2: 0.02947683073580265 step 3: 0.04374871775507927 
+Time to compute autocorrelations: 30.1s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0012000000569969416 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.10701700299978256 step 1: 0.047391586005687714 step 2: 0.03612911328673363 step 3: 0.04563967511057854 
+Time to compute autocorrelations: 32.3s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.0018000000854954123 step 2: 0.0022499999031424522 step 3: 0.0022499999031424522 
+total training time: 199autocorrelations at epoch 0: step 0: 0.027673427015542984 step 1: 0.012778683565557003 step 2: 0.030052850022912025 step 3: 0.013493821024894714 
+Time to compute autocorrelations: 29.6s
+autocorrelations at epoch 1: step 0: 0.06650162488222122 step 1: 0.025886204093694687 step 2: 0.036558203399181366 step 3: 0.0521903932094574 
+Time to compute autocorrelations: 30.0s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0012000000569969416 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.09772320836782455 step 1: 0.04577774181962013 step 2: 0.03821922466158867 step 3: 0.047176294028759 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.0018000000854954123 step 2: 0.0022499999031424522 step 3: 0.0014250000240281224 
+total training time: 190autocorrelations at epoch 0: step 0: 0.09369777143001556 step 1: 0.03852225840091705 step 2: 0.03331811726093292 step 3: 0.06178167462348938 
+Time to compute autocorrelations: 30.0s
+autocorrelations at epoch 1: step 0: 0.13554981350898743 step 1: 0.05866656452417374 step 2: 0.030783886089920998 step 3: 0.05131542682647705 
+Time to compute autocorrelations: 30.3s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.11629445850849152 step 1: 0.03674188628792763 step 2: 0.05105032026767731 step 3: 0.07095055282115936 
+Time to compute autocorrelations: 30.6s
+correlation penalties: step 0: 0.0014250000240281224 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+total training time: 185autocorrelations at epoch 0: step 0: 0.06186538189649582 step 1: 0.04116998612880707 step 2: 0.04575086385011673 step 3: 0.07353575527667999 
+Time to compute autocorrelations: 30.8s
+autocorrelations at epoch 1: step 0: 0.14032572507858276 step 1: 0.049023453146219254 step 2: 0.023948360234498978 step 3: 0.054918598383665085 
+Time to compute autocorrelations: 30.3s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.13927480578422546 step 1: 0.02855755388736725 step 2: 0.052415065467357635 step 3: 0.07363403588533401 
+Time to compute autocorrelations: 31.2s
+correlation penalties: step 0: 0.0014250000240281224 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+total training time: 186autocorrelations at epoch 0: step 0: 0.11639386415481567 step 1: 0.04660160094499588 step 2: 0.05775700509548187 step 3: 0.06145715340971947 
+Time to compute autocorrelations: 29.9s
+autocorrelations at epoch 1: step 0: 0.13321438431739807 step 1: 0.038774676620960236 step 2: 0.044004399329423904 step 3: 0.04905709996819496 
+Time to compute autocorrelations: 30.5s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.16008448600769043 step 1: 0.04535993933677673 step 2: 0.06149635836482048 step 3: 0.04433855041861534 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.0 
+total training time: 185/path/to/htdml-latent-dtm/vendor/dtm-replication/thrmlDenoising/fid/fid.py:73: LinAlgWarning: Matrix is singular. The result might be inaccurate or the array might not have a square root.
+  covmean, _ = scipy.linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+autocorrelations at epoch 0: step 0: 0.10370051860809326 step 1: 0.03127918392419815 step 2: 0.05073332041501999 step 3: 0.07269950211048126 
+Time to compute autocorrelations: 31.2s
+autocorrelations at epoch 1: step 0: 0.1288476437330246 step 1: 0.048945896327495575 step 2: 0.048289649188518524 step 3: 0.054143026471138 
+Time to compute autocorrelations: 31.3s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.16877786815166473 step 1: 0.03598008304834366 step 2: 0.05866345018148422 step 3: 0.042254067957401276 
+Time to compute autocorrelations: 30.6s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.0 
+total training time: 188autocorrelations at epoch 0: step 0: 0.16529935598373413 step 1: 0.0440957173705101 step 2: 0.0653672069311142 step 3: 0.04419935122132301 
+Time to compute autocorrelations: 29.6s
+autocorrelations at epoch 1: step 0: 0.1559973806142807 step 1: 0.0524158775806427 step 2: 0.054017603397369385 step 3: 0.04667644947767258 
+Time to compute autocorrelations: 30.4s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.242852121591568 step 1: 0.050751395523548126 step 2: 0.07984963059425354 step 3: 0.06092694401741028 
+Time to compute autocorrelations: 30.5s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.0022499999031424522 
+total training time: 185autocorrelations at epoch 0: step 0: 0.16099660098552704 step 1: 0.03783217817544937 step 2: 0.0603608563542366 step 3: 0.040792316198349 
+Time to compute autocorrelations: 29.6s
+autocorrelations at epoch 1: step 0: 0.14921337366104126 step 1: 0.054951589554548264 step 2: 0.06484709680080414 step 3: 0.05713739991188049 
+Time to compute autocorrelations: 32.1s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.21161973476409912 step 1: 0.04858803749084473 step 2: 0.05966911092400551 step 3: 0.06949369609355927 
+Time to compute autocorrelations: 30.6s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.0014250000240281224 step 3: 0.0022499999031424522 
+total training time: 186[RESUME seed2] stage-B sha=a26dbce50288 (current 19cd46f7cc60); Stage-B trained under the PRE-FIX cal-gate; resumed Stage C recomputes calibrate_tau under the small-tau gate fix. Verdict attributable to THIS checkpoint + changed gate.
+autocorrelations at epoch 0: step 0: 0.008800635114312172 step 1: 0.018871108070015907 step 2: 0.038271524012088776 step 3: 0.004431312903761864 
+Time to compute autocorrelations: 29.6s
+autocorrelations at epoch 1: step 0: 0.09505166113376617 step 1: 0.03591369092464447 step 2: 0.07530040293931961 step 3: 0.04253917559981346 
+Time to compute autocorrelations: 30.1s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.12863467633724213 step 1: 0.043212465941905975 step 2: 0.04314003512263298 step 3: 0.08757464587688446 
+Time to compute autocorrelations: 30.4s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.0022499999031424522 step 2: 0.0014250000240281224 step 3: 0.0022499999031424522 
+total training time: 191/path/to/htdml-latent-dtm/vendor/dtm-replication/thrmlDenoising/fid/fid.py:73: LinAlgWarning: Matrix is singular. The result might be inaccurate or the array might not have a square root.
+  covmean, _ = scipy.linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+autocorrelations at epoch 0: step 0: 0.019474240019917488 step 1: 0.016770731657743454 step 2: 0.03890287131071091 step 3: 0.004431312903761864 
+Time to compute autocorrelations: 30.8s
+autocorrelations at epoch 1: step 0: 0.08762183785438538 step 1: 0.03708764165639877 step 2: 0.06615100800991058 step 3: 0.04749558866024017 
+Time to compute autocorrelations: 30.3s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.1253451406955719 step 1: 0.05110987275838852 step 2: 0.04519445449113846 step 3: 0.09652914106845856 
+Time to compute autocorrelations: 30.9s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.0022499999031424522 step 2: 0.0014250000240281224 step 3: 0.0022499999031424522 
+total training time: 196autocorrelations at epoch 0: step 0: 0.12693209946155548 step 1: 0.0518294982612133 step 2: 0.033814091235399246 step 3: 0.08125583827495575 
+Time to compute autocorrelations: 30.4s
+autocorrelations at epoch 1: step 0: 0.140609472990036 step 1: 0.053787946701049805 step 2: 0.06736895442008972 step 3: 0.07910178601741791 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.17864662408828735 step 1: 0.054840750992298126 step 2: 0.05836127698421478 step 3: 0.08878884464502335 
+Time to compute autocorrelations: 30.8s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.0022499999031424522 step 2: 0.0014250000240281224 step 3: 0.001500000013038516 
+total training time: 187autocorrelations at epoch 0: step 0: 0.14303041994571686 step 1: 0.06368453800678253 step 2: 0.04147908091545105 step 3: 0.08451291173696518 
+Time to compute autocorrelations: 30.4s
+autocorrelations at epoch 1: step 0: 0.15440984070301056 step 1: 0.05292558670043945 step 2: 0.08182559907436371 step 3: 0.08644574880599976 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.1741085946559906 step 1: 0.08080410957336426 step 2: 0.05391911044716835 step 3: 0.10679198801517487 
+Time to compute autocorrelations: 30.9s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.001500000013038516 step 2: 0.0014250000240281224 step 3: 0.0022499999031424522 
+total training time: 187autocorrelations at epoch 0: step 0: 0.15649625658988953 step 1: 0.05532500147819519 step 2: 0.05037614703178406 step 3: 0.08248253166675568 
+Time to compute autocorrelations: 29.8s
+autocorrelations at epoch 1: step 0: 0.1312696933746338 step 1: 0.034998226910829544 step 2: 0.05812549963593483 step 3: 0.07193157076835632 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.0 step 1: 0.0 step 2: 0.001500000013038516 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.20355898141860962 step 1: 0.05155971646308899 step 2: 0.06650305539369583 step 3: 0.10389012843370438 
+Time to compute autocorrelations: 31.0s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0022499999031424522 step 3: 0.001500000013038516 
+total training time: 186autocorrelations at epoch 0: step 0: 0.17139992117881775 step 1: 0.06299205124378204 step 2: 0.049282804131507874 step 3: 0.10361763834953308 
+Time to compute autocorrelations: 30.1s
+autocorrelations at epoch 1: step 0: 0.14597007632255554 step 1: 0.030970532447099686 step 2: 0.06909623742103577 step 3: 0.07120740413665771 
+Time to compute autocorrelations: 30.8s
+correlation penalties: step 0: 0.0 step 1: 0.0 step 2: 0.001500000013038516 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.2044687122106552 step 1: 0.04724694788455963 step 2: 0.06554096192121506 step 3: 0.11863728612661362 
+Time to compute autocorrelations: 32.2s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0014250000240281224 step 3: 0.001500000013038516 
+total training time: 188autocorrelations at epoch 0: step 0: 0.20244541764259338 step 1: 0.03685561567544937 step 2: 0.07076103985309601 step 3: 0.11316420882940292 
+Time to compute autocorrelations: 30.1s
+autocorrelations at epoch 1: step 0: 0.1875496655702591 step 1: 0.06968007981777191 step 2: 0.07743854075670242 step 3: 0.11353098601102829 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.2654300332069397 step 1: 0.04333113878965378 step 2: 0.060788437724113464 step 3: 0.08482170850038528 
+Time to compute autocorrelations: 31.3s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.0014250000240281224 step 3: 0.0014250000240281224 
+total training time: 188autocorrelations at epoch 0: step 0: 0.20220890641212463 step 1: 0.04335766285657883 step 2: 0.06853029876947403 step 3: 0.1260400116443634 
+Time to compute autocorrelations: 30.4s
+autocorrelations at epoch 1: step 0: 0.19453836977481842 step 1: 0.0823420062661171 step 2: 0.06306878477334976 step 3: 0.11469031870365143 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.281790554523468 step 1: 0.04682931303977966 step 2: 0.06638388335704803 step 3: 0.09246408939361572 
+Time to compute autocorrelations: 31.0s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.0 
+total training time: 187autocorrelations at epoch 0: step 0: 0.2572876214981079 step 1: 0.039240967482328415 step 2: 0.08501093834638596 step 3: 0.1137387603521347 
+Time to compute autocorrelations: 31.2s
+autocorrelations at epoch 1: step 0: 0.19738127291202545 step 1: 0.08033909648656845 step 2: 0.08059629797935486 step 3: 0.10723364353179932 
+Time to compute autocorrelations: 31.1s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.291246622800827 step 1: 0.05691511929035187 step 2: 0.0773317962884903 step 3: 0.07926763594150543 
+Time to compute autocorrelations: 32.2s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.0 step 3: 0.0 
+total training time: 192autocorrelations at epoch 0: step 0: 0.2772059142589569 step 1: 0.04225646331906319 step 2: 0.09119610488414764 step 3: 0.11787264794111252 
+Time to compute autocorrelations: 30.3s
+autocorrelations at epoch 1: step 0: 0.21996009349822998 step 1: 0.08521787822246552 step 2: 0.07268770039081573 step 3: 0.10726529359817505 
+Time to compute autocorrelations: 31.0s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.2872648239135742 step 1: 0.050417572259902954 step 2: 0.07485277950763702 step 3: 0.0755334347486496 
+Time to compute autocorrelations: 31.4s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.0 
+total training time: 188autocorrelations at epoch 0: step 0: 0.26901018619537354 step 1: 0.051795341074466705 step 2: 0.0976807177066803 step 3: 0.08250372111797333 
+Time to compute autocorrelations: 30.9s
+autocorrelations at epoch 1: step 0: 0.27673694491386414 step 1: 0.06935567408800125 step 2: 0.09404165297746658 step 3: 0.07194926589727402 
+Time to compute autocorrelations: 30.9s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.25409409403800964 step 1: 0.06239965558052063 step 2: 0.09682007133960724 step 3: 0.0969744473695755 
+Time to compute autocorrelations: 31.1s
+correlation penalties: step 0: 0.0014250000240281224 step 1: 0.0014250000240281224 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+total training time: 189autocorrelations at epoch 0: step 0: 0.2765510082244873 step 1: 0.046607933938503265 step 2: 0.08492746949195862 step 3: 0.08100992441177368 
+Time to compute autocorrelations: 29.9s
+autocorrelations at epoch 1: step 0: 0.24844929575920105 step 1: 0.0836852490901947 step 2: 0.10318653285503387 step 3: 0.06737220287322998 
+Time to compute autocorrelations: 30.5s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.2849356532096863 step 1: 0.05715236812829971 step 2: 0.10061652958393097 step 3: 0.10439274460077286 
+Time to compute autocorrelations: 30.6s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.0014250000240281224 step 3: 0.001500000013038516 
+total training time: 187autocorrelations at epoch 0: step 0: 0.24877461791038513 step 1: 0.06302089989185333 step 2: 0.09024331718683243 step 3: 0.08982227742671967 
+Time to compute autocorrelations: 29.8s
+autocorrelations at epoch 1: step 0: 0.26851263642311096 step 1: 0.052117712795734406 step 2: 0.088918037712574 step 3: 0.07069703936576843 
+Time to compute autocorrelations: 33.4s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.289639949798584 step 1: 0.06111162528395653 step 2: 0.0775599330663681 step 3: 0.08499996364116669 
+Time to compute autocorrelations: 30.7s
+correlation penalties: step 0: 0.0022499999031424522 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.001500000013038516 
+total training time: 190autocorrelations at epoch 0: step 0: 0.2831289768218994 step 1: 0.057609692215919495 step 2: 0.08664107322692871 step 3: 0.0938040167093277 
+Time to compute autocorrelations: 30.0s
+autocorrelations at epoch 1: step 0: 0.28948086500167847 step 1: 0.06473506987094879 step 2: 0.0984891951084137 step 3: 0.07294394820928574 
+Time to compute autocorrelations: 30.8s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.2826153039932251 step 1: 0.04909816011786461 step 2: 0.06250444799661636 step 3: 0.08181454986333847 
+Time to compute autocorrelations: 31.4s
+correlation penalties: step 0: 0.0014250000240281224 step 1: 0.0014250000240281224 step 2: 0.0014250000240281224 step 3: 0.001500000013038516 
+total training time: 187autocorrelations at epoch 0: step 0: 0.3007979094982147 step 1: 0.0601377934217453 step 2: 0.10892677307128906 step 3: 0.11366329342126846 
+Time to compute autocorrelations: 30.4s
+autocorrelations at epoch 1: step 0: 0.23866072297096252 step 1: 0.062036193907260895 step 2: 0.08737824857234955 step 3: 0.07449054718017578 
+Time to compute autocorrelations: 31.1s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.2747012972831726 step 1: 0.06433163583278656 step 2: 0.07890723645687103 step 3: 0.06666623800992966 
+Time to compute autocorrelations: 31.4s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0022499999031424522 step 2: 0.0 step 3: 0.0 
+total training time: 188autocorrelations at epoch 0: step 0: 0.30571478605270386 step 1: 0.05352931097149849 step 2: 0.09838592261075974 step 3: 0.1126609817147255 
+Time to compute autocorrelations: 31.4s
+autocorrelations at epoch 1: step 0: 0.28008589148521423 step 1: 0.054160308092832565 step 2: 0.08243698626756668 step 3: 0.08560289442539215 
+Time to compute autocorrelations: 33.8s
+correlation penalties: step 0: 0.0 step 1: 0.001500000013038516 step 2: 0.0 step 3: 0.0 
+autocorrelations at epoch 2: step 0: 0.2864016890525818 step 1: 0.05295884609222412 step 2: 0.07548780739307404 step 3: 0.07693129777908325 
+Time to compute autocorrelations: 34.2s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.0014250000240281224 step 2: 0.0 step 3: 0.0 
+total training time: 195autocorrelations at epoch 0: step 0: 0.31169211864471436 step 1: 0.04470930993556976 step 2: 0.08568354696035385 step 3: 0.08983220160007477 
+Time to compute autocorrelations: 31.8s
+autocorrelations at epoch 1: step 0: 0.3223196864128113 step 1: 0.05467352271080017 step 2: 0.10904020071029663 step 3: 0.11220596730709076 
+Time to compute autocorrelations: 35.6s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.2966935932636261 step 1: 0.05060920491814613 step 2: 0.10876670479774475 step 3: 0.11012320220470428 
+Time to compute autocorrelations: 32.1s
+correlation penalties: step 0: 0.0014250000240281224 step 1: 0.0014250000240281224 step 2: 0.0014250000240281224 step 3: 0.0014250000240281224 
+total training time: 195autocorrelations at epoch 0: step 0: 0.31053104996681213 step 1: 0.049700941890478134 step 2: 0.09711042046546936 step 3: 0.10542576014995575 
+Time to compute autocorrelations: 32.2s
+autocorrelations at epoch 1: step 0: 0.35186219215393066 step 1: 0.05120649188756943 step 2: 0.106672503054142 step 3: 0.11062957346439362 
+Time to compute autocorrelations: 32.0s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.3193091154098511 step 1: 0.04355908930301666 step 2: 0.0949518159031868 step 3: 0.1087741106748581 
+Time to compute autocorrelations: 32.2s
+correlation penalties: step 0: 0.0014250000240281224 step 1: 0.0014250000240281224 step 2: 0.0014250000240281224 step 3: 0.0014250000240281224 
+total training time: 192autocorrelations at epoch 0: step 0: 0.30949723720550537 step 1: 0.05206909775733948 step 2: 0.09815694391727448 step 3: 0.11276324838399887 
+Time to compute autocorrelations: 32.0s
+autocorrelations at epoch 1: step 0: 0.2607719600200653 step 1: 0.04945102334022522 step 2: 0.1241845041513443 step 3: 0.12155269831418991 
+Time to compute autocorrelations: 32.4s
+correlation penalties: step 0: 0.0 step 1: 0.0 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.361946165561676 step 1: 0.09873858094215393 step 2: 0.0915675237774849 step 3: 0.080202117562294 
+Time to compute autocorrelations: 32.0s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0014250000240281224 step 3: 0.0014250000240281224 
+total training time: 193autocorrelations at epoch 0: step 0: 0.30451783537864685 step 1: 0.053214021027088165 step 2: 0.09120535850524902 step 3: 0.10610897839069366 
+Time to compute autocorrelations: 31.5s
+autocorrelations at epoch 1: step 0: 0.27667659521102905 step 1: 0.05153501406311989 step 2: 0.13037416338920593 step 3: 0.1243637204170227 
+Time to compute autocorrelations: 31.9s
+correlation penalties: step 0: 0.0 step 1: 0.0 step 2: 0.001500000013038516 step 3: 0.001500000013038516 
+autocorrelations at epoch 2: step 0: 0.35394781827926636 step 1: 0.08152231574058533 step 2: 0.09092855453491211 step 3: 0.08544500172138214 
+Time to compute autocorrelations: 31.8s
+correlation penalties: step 0: 0.001500000013038516 step 1: 0.001500000013038516 step 2: 0.0014250000240281224 step 3: 0.0014250000240281224 
+total training time: 194

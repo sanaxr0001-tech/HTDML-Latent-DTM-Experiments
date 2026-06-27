@@ -158,7 +158,7 @@ class RealOps:
         self.smoke = smoke
         self.cfg = _SmokeCfg() if smoke else _FullCfg()
         self.outdir = outdir              # where checkpoints/ is written (= the run OUTDIR)
-        self.resume_from = resume_from    # RESUME_FROM root (contains seed{N}/stage_b/) | None
+        self.resume_from = resume_from    # RESUME_FROM = OUTDIR root (contains checkpoints/seed{N}/stage_b/) | None
 
     # ------------------------------------------------------------------ Stage-B checkpoint (resume) — paths
     def _stage_b_dir(self, root, seed):
@@ -209,7 +209,7 @@ class RealOps:
         print(f"[persist seed{seed}] Stage-B checkpoint written to {sb}", flush=True)
 
     def load_stage_b(self, seed):
-        """Reconstruct the post-Stage-B _Model from <resume_from>/seed{N}/stage_b/.  Fail-closed
+        """Reconstruct the post-Stage-B _Model from <resume_from>/checkpoints/seed{N}/stage_b/.  Fail-closed
         (require_checkpoint + verify_manifest raise, NOT BudgetWall).  Re-encodes the latent dataset
         deterministically (encode is RNG-free; the raw split sha is verified) and re-applies the six
         post-construction static fields DTM.load reverts."""
@@ -593,7 +593,7 @@ def main(env=None, outdir=None):
     env = os.environ if env is None else env
     seeds, const, mode = parse_config(env)
     outdir = resolve_outdir(env, outdir)
-    resume_from = env.get("RESUME_FROM") or None    # checkpoints-root (contains seed{N}/stage_b/); skips A+B
+    resume_from = env.get("RESUME_FROM") or None    # OUTDIR root (contains checkpoints/seed{N}/stage_b/); skips A+B
     clock = WallClock(cap_seconds=const.GPU_H_CAP * 3600.0)
     ops = RealOps(const, smoke=(mode == "smoke"), outdir=outdir, resume_from=resume_from)
     result = O.run_stage_c(ops, seeds=seeds, acc=AcceptanceConstants(

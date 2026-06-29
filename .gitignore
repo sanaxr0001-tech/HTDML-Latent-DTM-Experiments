@@ -31,3 +31,6 @@ run_stage_c_smoke.json
 **/checkpoints/**/*.yaml
 **/checkpoints/**/autocorrelations.json
 **/checkpoints/**/opt_counts.json
+
+# W&B local run cache (import script)
+wandb/

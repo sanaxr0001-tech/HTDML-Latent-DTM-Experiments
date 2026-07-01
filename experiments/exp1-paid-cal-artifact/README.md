@@ -1,6 +1,6 @@
 # exp1 — paid H200 Stage-C run → `Q-CALIBRATION-FAIL` (cal-gate artifact)
 
-**Companion-local experiment numbering** (distinct from the internal-project wiki's exp1–exp20).
+**Companion-local experiment numbering** (distinct from the parent research project's own experiment numbering).
 This directory archives the **first** paid Stage-C run so its record is not overwritten by the exp2 re-run.
 
 ## Verdict
@@ -32,7 +32,7 @@ yet `cal_stable=False` at the **fastest** layer (τ̂≈2).
 doubling tolerances (`rel_tau=|Δτ|/τ < 0.15`, `dT=|ΔT_O|/T_O < 0.15`). At τ̂≈2 these are dominated by
 estimation noise (a 2.0→2.5 jitter = 25% > 15%) → never 2 consecutive STABLE rungs → false fail.
 Reproducible across both seeds ⇒ **systematic** (criterion × architecture), the **opposite** failure mode
-to stickiness. Mirrors wiki **exp13** (a gate-spec artifact). The per-rung doubling curve was **not
+to stickiness. Mirrors a related internal experiment (a gate-spec artifact). The per-rung doubling curve was **not
 persisted** by this run (`RealOps.calibrate_tau` kept only `tau_hat`/`cal_stable`), so the failing axis
 could not be pinpointed from the JSON.
 
@@ -44,4 +44,4 @@ could not be pinpointed from the JSON.
 ## → exp2
 The repair + re-run is `../exp2-cal-gate-fix/` (regime-aware cal-gate floor `TAU_ABS_FLOOR`, pre-registered
 before the re-run; the run now also **persists** the per-rung curve). MEASURE-ONLY — companion-local
-tokens, never a wiki tag.
+tokens only.

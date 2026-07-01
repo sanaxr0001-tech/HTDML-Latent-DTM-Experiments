@@ -6,6 +6,7 @@ __pycache__/
 
 # Build scratch — keep on disk, not in git
 .superpowers/
+.claude/
 
 # Dataset and model caches (populated at Task 7+)
 data/

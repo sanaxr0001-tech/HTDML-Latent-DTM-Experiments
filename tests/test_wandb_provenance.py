@@ -7,7 +7,7 @@ from scripts.wandb_fix_provenance import build_h200_metadata, EXP_PROVENANCE, ru
 
 
 LAPTOP_MD = {
-    "host": "laptop-host", "os": "Linux-6.8.0-124-generic-x86_64-with-glibc2.35",
+    "host": "laptop-host", "os": "Linux-x86_64",
     "python": "CPython 3.13.12", "executable": "/home/user/miniconda3/bin/python",
     "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU", "gpu_count": 1,
     "cpu_count": 20, "cpu_count_logical": 28,
@@ -56,7 +56,7 @@ def test_no_laptop_residue_anywhere():
     assert "4060" not in blob
     assert "miniconda" not in blob
     assert "3.13" not in blob
-    assert "sana" not in blob
+    assert "laptop-host" not in blob
 
 
 def test_provenance_table_covers_three_experiments():

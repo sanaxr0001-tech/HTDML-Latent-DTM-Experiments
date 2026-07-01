@@ -19,7 +19,7 @@ trusts: every check below HARD-FAILS (pytest assertion) on violation.
       opt counts (`_find_counts`) / RNG keys (`_key_list`) restored bitwise, while `autocorrelations`
       come back EMPTY (DTM.load drops the unsaved static) → recovered by the OUT-OF-BAND re-inject the
       Task-8 driver performs.
-  Plus a MANDATORY `refreshed_weight_proof` gate on the fixture DTM (the exp15/16 stale-factors guard).
+  Plus a MANDATORY `refreshed_weight_proof` gate on the fixture DTM (the stale-factors guard).
 
 THE SIZING DECISION (resolved by inspecting source — documented in task-4-report.md):
   * The grid is `side_len²` nodes (poisson_binomial_ising_graph_manager.py:122 `size = side_len**2`),
@@ -118,7 +118,7 @@ FIXTURE_CFG = dict(
                n_epochs_for_lrd=50),
 )
 
-# The production-shape invariants the fixture must satisfy (build-notes §"Training-negative free set").
+# The production-shape invariants the fixture must satisfy (the training-negative free set).
 SUPERBLOCK_NAMES = ("upper_hidden", "lower_hidden", "image_output", "label_output")
 EXPECTED_BLOCK_LENS = [2, 8, 3, 3]            # 4_4 + smoke_testing_3_1_3 + num_label_spots=1
 EXPECTED_N_TOTAL = 16                         # 2^16 = 65536 enumerable
@@ -140,7 +140,7 @@ TO_CROSS_SEED_CV_TOL = 0.05                   # cross-seed CV of T_O_est (proves
 def _build_fixture_step():
     """Instantiate the REAL 4_4 tiny DTM and return a PERTURBED step 0 (trained-≠-init weights via the
     exact `eqx.tree_at` write-back DTM.train uses, deliberately leaving `model.factors` stale — the
-    faithful, GPU-free exp15/16-bug reproduction). Does NOT call `dtm.train` (CPU constraint)."""
+    faithful, GPU-free stale-factors-bug reproduction). Does NOT call `dtm.train` (CPU constraint)."""
     from thrmlDenoising.DTM import DTM
     from thrmlDenoising.utils import make_cfg
 
@@ -154,7 +154,7 @@ def _build_fixture_step():
 def _perturb_step(step, scale=0.5, seed=123):
     """Perturb weights/biases EXACTLY as DTM.train's write-back does (tree_at updates weights/biases +
     the program per_block_interactions but DELIBERATELY leaves `model.factors` stale, DTM.py:337-340).
-    Faithful, GPU-free reproduction of the trained state that triggers the exp15/16 stale-factors bug."""
+    Faithful, GPU-free reproduction of the trained state that triggers the stale-factors bug."""
     import equinox as eqx
     import jax.random as jr
 
@@ -183,7 +183,7 @@ def test_fixture_model_is_production_shape():
     coupling, and the PoissonBinomial manager (the convolved manager breaks the bipartite premise)."""
     dtm, step = _build_fixture_step()
 
-    # PoissonBinomial manager invariant (build-notes §"MUST assert base_graph_manager ...").
+    # PoissonBinomial manager invariant (MUST assert base_graph_manager ...).
     assert dtm.cfg.graph.base_graph_manager == "poisson_binomial_ising_graph_manager", (
         "fixture must use the PoissonBinomial manager (convolved breaks 'all visibles in upper')")
 
@@ -253,9 +253,9 @@ def test_fixture_model_is_production_shape():
 
 # ====================================================================== MANDATORY refresh-proof gate
 def test_mandatory_refreshed_weight_proof_on_fixture():
-    """MANDATORY (brief: "must pass for the fixture DTM before any probe. Call it."): the exp15/16
+    """MANDATORY (brief: "must pass for the fixture DTM before any probe. Call it."): the
     stale-factors guard. The fixture's perturbation (eqx.tree_at write-back leaving `model.factors`
-    stale, the faithful exp15/16-bug repro) sets up the stale substrate; a freshly-built
+    stale, the faithful stale-factors-bug repro) sets up the stale substrate; a freshly-built
     AnnealingIsingSamplingProgram reads those stale INIT factors, and the refresh re-injects the trained
     weights. `refreshed_weight_proof` must return constructor_was_stale=True AND refresh_ok=True
     (refreshed_vs_trained_maxabs ≈ 0). This is the whole reason the companion exists — every probe and
@@ -266,7 +266,7 @@ def test_mandatory_refreshed_weight_proof_on_fixture():
                 "stale_vs_trained_maxabs"]).issubset(proof)
     assert proof["constructor_was_stale"] is True, (
         f"constructor was NOT stale (stale_vs_trained_maxabs={proof['stale_vs_trained_maxabs']}) — the "
-        "exp15/16 bug premise does not hold on the fixture; the guard would be vacuous")
+        "stale-factors bug premise does not hold on the fixture; the guard would be vacuous")
     assert proof["refresh_ok"] is True, (
         f"refresh did NOT take (refreshed_vs_trained_maxabs={proof['refreshed_vs_trained_maxabs']}) — "
         "the mandatory trained-weight refresh is broken")
@@ -303,7 +303,7 @@ def test_a_no_gradient_reaches_b0_through_bt():
     already non-differentiable, so jax.grad is zero WITH OR WITHOUT the explicit `stop_gradient` — this
     test validates the *property the build needs* ("no gradient reaches b0 through b_t"), but it CANNOT
     distinguish stop_gradient-present from stop_gradient-absent (both give exactly zero). The companion
-    relies on BOTH facts (the build-notes wrap b_t in `stop_gradient` as a declarative guard; the draw is
+    relies on BOTH facts (the build wraps b_t in `stop_gradient` as a declarative guard; the draw is
     structurally non-differentiable anyway). We assert both branches to document this, NOT to claim the
     test exercises stop_gradient specifically."""
     import jax
@@ -444,7 +444,7 @@ def _build_exact_cell(seed=0, sizes=(2, 4, 2, 2), n_clamp=4, beta=0.9):
     P_rev = sc.ordered_product(block_mats, list(reversed(fwd)))
     K = 0.5 * (P_fwd + P_rev)                                  # the reversible kernel (DB-certified math)
 
-    # gradient observables f_a = {edge products s_e0·s_e1, node spins s_n} (exp4 ordering: edges then bias)
+    # gradient observables f_a = {edge products s_e0·s_e1, node spins s_n} (ordering: edges then bias)
     iu, ju = np.where(np.triu(J, 1) != 0)
     edge0, edge1 = iu.astype(np.int32), ju.astype(np.int32)
     n_edge = len(edge0)

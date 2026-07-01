@@ -11,17 +11,17 @@ We verify it on a TINY ENUMERABLE shadow (exact π over 2^N states, exact block-
 that has the SAME superblock structure as the PRODUCTION 44_12 DTM negative-phase kernel:
 
   * 4 FREE superblocks {upper_hidden, lower_hidden, image_output, label_output} (the training-negative
-    free set, build-notes §"Training-negative free set"), each a 1-tuple in `sampling_order` — so the
+    free set — see design notes), each a 1-tuple in `sampling_order` — so the
     forward order is `[0,1,2,3]` and the reverse is `[3,2,1,0]`;
   * a CLAMPED conditioning block b_t (the negative-phase clamp = `[conditioning_block]` only), which
     enters the free spins' fields through fixed coupling edges (b_t couples 1-to-1 to the OUTPUT
-    superblocks; build-notes §"Stage-C ... b_t precision"). The clamp is held fixed, so each free
+    superblocks; see design notes on Stage-C b_t precision). The clamp is held fixed, so each free
     block's Gibbs conditional is exact and reversible w.r.t. the clamped-conditional π.
 
-The DTM energy form (build-notes / exp15) is the Ising
+The DTM energy form (see design notes) is the Ising
     E(s; s_clamp) = -( Σ_edges W_e s_e0 s_e1 + Σ_bias b_n s_n + Σ_coupling cw_c s_free[cf] s_clamp[cc] ).
 
-Checks (ported from exp4/selfadjoint_check.py + exp15/selfadjoint_check_dtm_pt.py):
+Checks (ported from internal reference harnesses):
   (1) each superblock Gibbs update P_g leaves π invariant AND is π-reversible (D P_g symmetric);
   (2) the DETERMINISTIC ordered product P_fwd is in general NOT π-reversible (DB residual ~1e-2) —
       exactly the non-reversible alternating/deterministic scan the patch replaces (the discriminator);
@@ -39,8 +39,7 @@ from collections import defaultdict
 
 import numpy as np
 
-# Frozen gate constants (lifted verbatim from exp4/selfadjoint_check.py:34-37 =
-# exp15/selfadjoint_check_dtm_pt.py:34-36).
+# Frozen gate constants (lifted verbatim from internal reference harnesses).
 TOL_SYM = 1e-10      # detailed-balance / self-adjointness to ~machine precision
 TOL_INV = 1e-10      # stationarity π P = π
 TOL_ADJ = 1e-10      # adjoint identity (P_fwd)* = P_rev
@@ -52,7 +51,7 @@ SUPERBLOCK_NAMES = ("upper_hidden", "lower_hidden", "image_output", "label_outpu
 
 # --------------------------------------------------------------------------- enumeration helpers
 def spin_table(n: int) -> np.ndarray:
-    """rows = all 2^n spin configs in {-1,+1}^n (bit b -> spin 2*b-1). exp4 convention."""
+    """rows = all 2^n spin configs in {-1,+1}^n (bit b -> spin 2*b-1). internal convention."""
     return np.array(
         [[2 * b - 1 for b in bits] for bits in itertools.product((0, 1), repeat=n)],
         dtype=np.int64,
@@ -78,7 +77,7 @@ def boltzmann_clamped(S, J, h, coupling, s_clamp, beta):
 
 def block_gibbs_matrix(pi, S, block):
     """Exact transition matrix of a single-superblock Gibbs update of `block` (a list of free site
-    indices): resample x_block ~ π(. | x_{-block}). Row-stochastic. Verbatim from exp4."""
+    indices): resample x_block ~ π(. | x_{-block}). Row-stochastic. Verbatim from the internal reference harness."""
     N = S.shape[0]
     n = S.shape[1]
     comp = [i for i in range(n) if i not in block]
@@ -94,7 +93,7 @@ def block_gibbs_matrix(pi, S, block):
 
 
 def ordered_product(block_mats, order):
-    """Apply blocks left-to-right in `order` (row-stochastic composition). Verbatim from exp4."""
+    """Apply blocks left-to-right in `order` (row-stochastic composition). Verbatim from the internal reference harness."""
     P = None
     for idx in order:
         P = block_mats[idx] if P is None else P @ block_mats[idx]
@@ -102,13 +101,13 @@ def ordered_product(block_mats, order):
 
 
 def max_asym(P, pi):
-    """max |D P - (D P)^T| with D = diag(π) (= detailed-balance residual). Verbatim from exp4/exp15."""
+    """max |D P - (D P)^T| with D = diag(π) (= detailed-balance residual). Verbatim from the internal reference harness."""
     DP = pi[:, None] * P
     return float(np.max(np.abs(DP - DP.T)))
 
 
 def adjoint_in_pi(P, pi):
-    """The L²(π) adjoint of P: P* = D^{-1} P^T D. Verbatim from exp4."""
+    """The L²(π) adjoint of P: P* = D^{-1} P^T D. Verbatim from the internal reference harness."""
     return (P.T * pi[None, :]) / pi[:, None]
 
 
@@ -119,11 +118,11 @@ def make_dtm_negative_cell(rng, sizes=(1, 1, 1, 1), n_clamp=2, beta=0.9):
     b_t. `sizes` = #free spins per superblock (default 1 each -> 4 single-site free superblocks; the
     forward [0,1,2,3] / reverse [3,2,1,0] DTM order). Returns (blocks, J, h, coupling, s_clamp, beta).
 
-    Structure honoring the build-notes:
+    Structure honoring the design notes:
       * the base grid is STRICTLY BIPARTITE upper<->lower (no intra-superblock edges) — so we wire
         coupling edges between distinct superblocks only and never within a superblock;
       * b_t couples ONLY to the OUTPUT superblocks (image_output, label_output) with fixed weights
-        (build-notes §"b_t precision"), so the coupling endpoints are output free sites.
+        (see design notes on b_t precision), so the coupling endpoints are output free sites.
     """
     # assign contiguous free-spin indices to each superblock
     blocks = []

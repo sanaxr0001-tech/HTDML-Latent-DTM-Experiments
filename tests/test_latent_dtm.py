@@ -1,6 +1,6 @@
 """Task 7 — tests for src/htdml/latent_dtm.py (LatentDTM) + the shared-coin caller threading.
 
-CPU ONLY — NO ``dtm.train`` (it HARD-REQUIRES a GPU; build-notes §"CPU vs GPU").  The
+CPU ONLY — NO ``dtm.train`` (it HARD-REQUIRES a GPU; the CPU vs GPU split).  The
 ``.generate`` SAMPLING path is exercised on a CPU-built + perturbed DTM.
 
 Tests
@@ -50,7 +50,7 @@ _CPU = jax.devices("cpu")[0]
 
 # ============================================================================== LD-1: cfg values
 def test_companion_cfg_matches_pins():
-    """The built companion cfg sets every FROZEN PINS value exactly (build-notes §config table)."""
+    """The built companion cfg sets every FROZEN PINS value exactly (the config table)."""
     cfg = make_companion_cfg()
 
     # --- graph ---
@@ -105,7 +105,7 @@ _NCLS = 2
 def _perturb(step, scale=0.5, seed=123):
     """Perturb step weights EXACTLY as DTM.train's write-back does (refreshes the generation
     programs so .generate reads trained-≠-init weights; leaves model.factors stale — the
-    faithful exp15/16 reproduction)."""
+    faithful stale-factors reproduction)."""
     from thrmlDenoising.sampling_specs import get_new_per_block_interactions
 
     k = jr.PRNGKey(seed)

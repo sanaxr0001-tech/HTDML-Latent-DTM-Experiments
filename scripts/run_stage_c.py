@@ -20,14 +20,14 @@ def parse_config(env):
     mode = env.get("MODE", "full").lower()
     # BUDGET_H footgun fix: MODE=full REQUIRES an explicit BUDGET_H — a silent 4.0 default would become a
     # hard WallClock cap and guillotine seed-2's 200-epoch Stage B (~5.1 GPU-h/seed) mid-run.  Force the
-    # operator to declare intent (the conferred paid cap is 16.0; see p0_decision.md).  Smoke keeps 4.0.
+    # operator to declare intent (the fixed paid cap is 16.0).  Smoke keeps 4.0.
     if "BUDGET_H" in env:
         budget_h = float(env["BUDGET_H"])
     elif mode == "smoke":
         budget_h = 4.0
     else:
         raise ValueError("BUDGET_H must be set explicitly for MODE=full (paid run); "
-                         "refusing a silent default wall-clock cap (conferred cap = 16.0, see p0_decision.md)")
+                         "refusing a silent default wall-clock cap")
     if "SEEDS" in env:
         seeds = [int(s) for s in env["SEEDS"].split(",") if s.strip()]
     else:
@@ -58,7 +58,7 @@ def build_provenance():
     return {"git_sha": _git("rev-parse", "HEAD"), "env_freeze": "env-h200-freeze.txt",
             "jax_backend": backend, "is_patch_live": patch}
 
-_REPORT = "# Stage-C run report\n\nOutcome: **{outcome}**\n\nWritten after run_stage_c.json. MEASURE-ONLY — no wiki tag move.\n"
+_REPORT = "# Stage-C run report\n\nOutcome: **{outcome}**\n\nWritten after run_stage_c.json. MEASURE-ONLY.\n"
 
 def write_outputs(result, outdir, *, mode):
     os.makedirs(outdir, exist_ok=True)
@@ -135,7 +135,7 @@ class _Model:
 class _Arm:
     """One Stage-C arm (joint OR control): its own forked DTM + its own encoder param/opt-state copy +
     the shared static (encoder, latent dataset, probe batch).  commit/rollback snapshot+restore the DTM
-    out-of-band (autocorrelations + dtm.key + opt-state, per build-notes §"DTM.load drops autocorr")."""
+    out-of-band (autocorrelations + dtm.key + opt-state, per the "DTM.load drops autocorr" design note)."""
     def __init__(self, dtm, enc, latent_ds, batch, ae_params, lam):
         self.dtm = dtm
         self.enc = enc

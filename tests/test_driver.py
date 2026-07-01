@@ -1,6 +1,6 @@
 """Task 9 — tests for src/htdml/driver.py (Stage A/B/C driver + fork/restore + gates + router).
 
-CPU ONLY — NO ``dtm.train`` (it HARD-REQUIRES a GPU; build-notes §"CPU vs GPU").  The Stage A/B/C
+CPU ONLY — NO ``dtm.train`` (it HARD-REQUIRES a GPU; the CPU vs GPU split).  The Stage A/B/C
 TRAINING is GPU-wired (smoke-deferred, Task 12).  What is CPU-unit-tested here:
 
   * the 6-token outcome ROUTER (``route_seed`` / ``route_run``) — PURE functions, all 6 tokens +

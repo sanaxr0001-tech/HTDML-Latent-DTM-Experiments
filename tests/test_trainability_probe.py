@@ -1,9 +1,9 @@
 """Task 8 — tests for src/htdml/trainability_probe.py (TrainabilityProbe).
 
-CPU ONLY — NO ``dtm.train`` (GPU-only; build-notes §"CPU vs GPU").  The frozen-θ negative
+CPU ONLY — NO ``dtm.train`` (GPU-only; the CPU vs GPU split).  The frozen-θ negative
 phase is exercised on the small REAL 4_4 fixture DTM (Task 4), perturbed via the exact
 ``eqx.tree_at`` write-back (trained-≠-init weights, ``model.factors`` left stale = the faithful
-exp15/16 stale-factors reproduction → the refresh-proof is genuinely exercised).
+stale-factors reproduction → the refresh-proof is genuinely exercised).
 
 Tests
 -----
@@ -74,13 +74,13 @@ def probe():
 
 
 def _batch(dtm):
-    """A probe batch = (image, label, idx) for the single-input clamp (exp16 phase_data_1 pattern)."""
+    """A probe batch = (image, label, idx) for the single-input clamp (an internal reference pattern)."""
     return dict(image=dtm.train_dataset["image"], label=dtm.train_dataset["label"], idx=0)
 
 
 # ============================================================ TP-refresh: HARD-HALT refresh proof
 def test_evaluate_hard_halts_on_per_layer_refresh(fixture_dtm, probe, monkeypatch):
-    """The MANDATORY exp15/16 guard: evaluate() asserts the layer's step refresh took
+    """The MANDATORY stale-factors guard: evaluate() asserts the layer's step refresh took
     (constructor_was_stale ∧ refresh_ok) and HARD-HALTS otherwise.
 
     (a) a clean evaluate() PASSES the proof (constructor_was_stale=True, refresh_ok=True);
@@ -324,9 +324,9 @@ def test_calibration_returns_tau_TO_calstable(fixture_dtm, probe):
     assert "curve" in calib and len(calib["curve"]) >= 1
 
 
-# ============================================================ TP-calib: Cal-STABLE classifier (exp16-faithful)
-def test_cal_stable_classifier_thresholds_are_exp16_constants():
-    """The Cal-STABLE thresholds are the VERBATIM exp15/exp16 constants (NOT laxer).  The small-τ
+# ============================================================ TP-calib: Cal-STABLE classifier (internal-reference-faithful)
+def test_cal_stable_classifier_thresholds_are_reference_constants():
+    """The Cal-STABLE thresholds are the VERBATIM internal-reference constants (NOT laxer).  The small-τ
     ABSOLUTE floor is an ADDED a-priori estimator constant; the three relative thresholds are unchanged."""
     assert pp.SOKAL_C == 5.0
     assert pp.TAU_TOL == 0.15
@@ -336,7 +336,7 @@ def test_cal_stable_classifier_thresholds_are_exp16_constants():
 
 
 def test_cal_stable_requires_two_consecutive_stable_rungs():
-    """exp16's `consec_stable >= 2`: a SINGLE stable rung (all three axes) is NOT Cal-STABLE; two
+    """The `consec_stable >= 2` rule: a SINGLE stable rung (all three axes) is NOT Cal-STABLE; two
     CONSECUTIVE stable rungs ARE."""
     base = dict(tau_max=10.0, T_O=100.0, self_consistent=True, dS_l1=0.01)
     rung0 = dict(base, L=1000, dS_l1=None)               # rung 0 has no prev → not a step
@@ -354,7 +354,7 @@ def test_cal_stable_requires_two_consecutive_stable_rungs():
 def test_cal_stable_can_fail_on_drifting_TO_with_stable_Sa_shape():
     """THE failure mode the laxer (dS_l1-only) criterion missed: a chain whose AGGREGATE T_O is still
     DRIFTING (large dT) but whose L1-normalized S_a *shape* momentarily stabilizes (small dS_l1) on a
-    rung must be reported cal_stable=False — the dT axis must independently veto.  exp16 = UNRESOLVED."""
+    rung must be reported cal_stable=False — the dT axis must independently veto (reference verdict: UNRESOLVED)."""
     # Every rung: tau stable + self-consistent + tiny dS_l1 (shape frozen) BUT T_O grows ~40%/doubling.
     curve = [
         dict(L=1000, tau_max=10.0, T_O=100.0, self_consistent=True, dS_l1=None),
@@ -391,7 +391,7 @@ def test_cal_stable_vetoed_by_non_self_consistent_rung():
     ]
     cal_stable, _ann, failed_axis = pp.classify_calibration_stable(curve)
     assert cal_stable is False
-    assert "tau_hat" in failed_axis  # self_consistent is folded into the tau axis (exp16)
+    assert "tau_hat" in failed_axis  # self_consistent is folded into the tau axis
 
 
 # ====================================================== TP-calib: Cal-STABLE small-τ regime floor (exp2)

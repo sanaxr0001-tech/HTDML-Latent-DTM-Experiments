@@ -3,16 +3,16 @@
 This module is the building block used by the 6_4 fixture (Task 4), the compat-core (Task 4), the
 TrainabilityProbe (Task 6), and the driver fork/restore (Task 7). It has TWO parts:
 
-  PART A — VERBATIM-faithful ports of the wiki exp15 / exp15-recheck / exp19 harness primitives. The
+  PART A — VERBATIM-faithful ports of internal reference harness primitives. The
   math is already validated upstream; it is ported here UNCHANGED (only imports/bootstrap adapted —
   no path/cd/JSON-runner scaffolding). Provenance of each port is noted at its definition. Sources:
-    * `…/experiments/internal-exp/pt_p0_calibrate.py`
-        - `_rho_block` (:142), `_tau_half_from_rho` (:155), `_obs_chunk` (:167),
-          `sokal_profile_from_spins` (:180)           — the half-Sokal τ_int / T_O estimator,
-        - `build_maps` (:257), `energy_free` (:296)    — per-block maps + the THREE-term conditional,
-        - `_find_counts` (:202), `_weights_hash` (:233), `_key_list` (:240)  — rollback / provenance.
-    * `…/experiments/internal-exp/recheck.py` (:74-129) + `internal_exp.py` (:186-242)
-        - the MANDATORY trained-weight refresh (the exp15/16 init-weight bug fix): a standalone
+    * the upstream calibration harness
+        - `_rho_block`, `_tau_half_from_rho`, `_obs_chunk`,
+          `sokal_profile_from_spins`                   — the half-Sokal τ_int / T_O estimator,
+        - `build_maps`, `energy_free`                  — per-block maps + the THREE-term conditional,
+        - `_find_counts`, `_weights_hash`, `_key_list`  — rollback / provenance.
+    * the upstream recheck / validation harness
+        - the MANDATORY trained-weight refresh (the init-weight bug fix): a standalone
           `refresh_program_weights(prog, step)` + the HARD-HALT `refreshed_weight_proof(step)`.
 
   The PT-ladder functions (build_alpha_programs, pt_super_sweep, pt_traj, measure_swap_accept,
@@ -20,8 +20,8 @@ TrainabilityProbe (Task 6), and the driver fork/restore (Task 7). It has TWO par
   SINGLE-replica reversible kernel, no PT ladder. We reuse only the *refresh idea* that lived inside
   `build_alpha_programs_refreshed`, lifted out as the standalone `refresh_program_weights`.
 
-  PART B — the companion's NEW K=50 retained-Y-process + Rademacher-sketch layer (build-notes
-  §"Probe K=50 convention", E1/E6). Y_i = X_{B+i·s}, B=400, s=8, i=1..K, K=50. τ_int,Y (half-Sokal on
+  PART B — the companion's NEW K=50 retained-Y-process + Rademacher-sketch layer (design notes,
+  "Probe K=50 convention"). Y_i = X_{B+i·s}, B=400, s=8, i=1..K, K=50. τ_int,Y (half-Sokal on
   the retained process) is the PRIMARY mixing-margin scalar; derived ESS_hat / Q_struct^⊥ / r_grad
   diagnostics; a fixed deterministic Rademacher (±1) sketch with a worst-of-N_R screening reduction.
 
@@ -48,14 +48,14 @@ import hashlib  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-# ============================================================ frozen estimator constants (exp15 §1)
-# Lifted verbatim from pt_p0_calibrate.py (estimator hygiene, NOT scientific bars).
+# ============================================================ frozen estimator constants (upstream §1)
+# Lifted verbatim from the upstream calibration harness (estimator hygiene, NOT scientific bars).
 OBS_CHUNK = 2048
 TAU_CHUNK = 4096
 
-# Doubling-stability Cal-STABLE thresholds — VERBATIM from exp15 pt_p0_calibrate.py:70-72 (the SAME
-# constants exp16 imports as P15.SOKAL_C / TAU_TOL / STAB_TOL). The Cal-STABLE boolean the driver's
-# Q-CALIBRATION-FAIL gate reads MUST use these (NOT a laxer ad-hoc criterion).
+# Doubling-stability Cal-STABLE thresholds — VERBATIM from the upstream calibration harness (the SAME
+# constants the operational-validation harness imports as SOKAL_C / TAU_TOL / STAB_TOL). The Cal-STABLE
+# boolean the driver's Q-CALIBRATION-FAIL gate reads MUST use these (NOT a laxer ad-hoc criterion).
 SOKAL_C = 5.0      # half-Sokal self-consistency: L >= SOKAL_C*tau_max (NOT the tracking c=3)
 TAU_TOL = 0.15     # tau_max doubling stability: |dtau_max|/tau_max < TAU_TOL
 STAB_TOL = 0.15    # aggregate-T_O Cal-STABLE: |dT_O|/T_O AND ||dS||_1/sum(S) BOTH < STAB_TOL
@@ -69,17 +69,17 @@ STAB_TOL = 0.15    # aggregate-T_O Cal-STABLE: |dT_O|/T_O AND ||dS||_1/sum(S) BO
 # small-τ cut = TAU_ABS_FLOOR/TAU_TOL ≈ 6.67.  Does NOT change TAU_TOL/STAB_TOL/SOKAL_C (still pinned).
 TAU_ABS_FLOOR = 1.0
 
-# ============================================================ companion K=50 convention (build-notes §E1)
+# ============================================================ companion K=50 convention (design notes)
 K_WINDOW = 50          # window_samples_K — retained samples per window (= n_samples upstream)
 B_WARMUP = 400         # steps_warmup — burn-in sweeps discarded before retention
 STRIDE_SWEEPS = 8      # steps_per_sample — sweeps between retained samples (= window_span/K)
 
 
 # ================================================================ PART A.1 — half-Sokal estimators
-# VERBATIM from exp15 pt_p0_calibrate.py:142-198 (math unchanged; only docstrings trimmed).
+# VERBATIM from the upstream calibration harness (math unchanged; only docstrings trimmed).
 def _rho_block(block):
     """Normalised autocorrelation ρ(ℓ) per observable column, averaged over chains (FFT acov / acov0).
-    block: (n_chains, L, b). Returns (L, b). VERBATIM exp15 pt_p0_calibrate.py:142."""
+    block: (n_chains, L, b). Returns (L, b). VERBATIM from the upstream calibration harness."""
     n_chains, L, b = block.shape
     x = block - block.mean(axis=1, keepdims=True)
     nfft = 1
@@ -94,7 +94,7 @@ def _rho_block(block):
 
 def _tau_half_from_rho(rho):
     """half-Sokal integrated autocorrelation time per column: τ = ½ + Σ positive ρ-pairs (truncated at
-    the first non-positive pair). rho: (L, b). Returns (b,). VERBATIM exp15 pt_p0_calibrate.py:155."""
+    the first non-positive pair). rho: (L, b). Returns (b,). VERBATIM from the upstream calibration harness."""
     L, b = rho.shape
     npair = (L - 1) // 2
     if npair <= 0:
@@ -107,8 +107,8 @@ def _tau_half_from_rho(rho):
 
 
 def _obs_chunk(spins, maps, lo, hi):
-    """Build the observable block f_a for columns [lo,hi): edge products then bias spins (exp4 ordering).
-    Never materializes the full f. VERBATIM exp15 pt_p0_calibrate.py:167."""
+    """Build the observable block f_a for columns [lo,hi): edge products then bias spins (internal ordering).
+    Never materializes the full f. VERBATIM from the upstream calibration harness."""
     n_edge = maps["n_edge"]
     cols = []
     e_lo, e_hi = max(lo, 0), min(hi, n_edge)
@@ -124,7 +124,7 @@ def sokal_profile_from_spins(spins, maps):
     """Stream the FULL per-observable half-Sokal profile; return (tau_max, T_O, S_a) where
     S_a = 2·τ_int_a·Var_a (estimated Var; the DTM is non-enumerable), T_O = ½·Σ_a S_a, and
     tau_max = max_a τ_int_a (window-sizing scalar). Never materializes the full f.
-    THE core mixing-time estimator. VERBATIM exp15 pt_p0_calibrate.py:180."""
+    THE core mixing-time estimator. VERBATIM from the upstream calibration harness."""
     P = maps["n_edge"] + maps["n_bias"]
     S_a = np.empty(P, dtype=np.float64)
     tau_max = 0.0
@@ -143,10 +143,10 @@ def sokal_profile_from_spins(spins, maps):
 
 
 # ================================================================ PART A.1b — Cal-STABLE classifier
-# FAITHFUL port of exp15 pt_p0_calibrate.py:540-568 `classify_curve` STABLE-step + 2-consecutive logic
-# (the Cal-STABLE leg only — the P0 ladder's RESOLVED/UNRESOLVED/WALL three-way split + LINEAR-growth
+# FAITHFUL port of the upstream calibration harness's `classify_curve` STABLE-step + 2-consecutive logic
+# (the Cal-STABLE leg only — the ladder's RESOLVED/UNRESOLVED/WALL three-way split + LINEAR-growth
 # axis are NOT needed for the companion's Q-CALIBRATION-FAIL gate, which is a binary cal_stable). The
-# per-rung STABLE test is exp16's exact THREE-axis criterion; Cal-STABLE requires TWO CONSECUTIVE
+# per-rung STABLE test is the operational-validation harness's exact THREE-axis criterion; Cal-STABLE requires TWO CONSECUTIVE
 # STABLE rungs. A chain whose T_O is still drifting (large dT) but whose L1-normalized S_a shape
 # momentarily stabilizes on a SINGLE rung is correctly reported NOT-stable (the failure mode the laxer
 # single-rung / dS_l1-only criterion missed).
@@ -155,17 +155,17 @@ def classify_calibration_stable(curve):
 
     `curve` is a list of rung dicts (in doubling order) each carrying:
       tau_max, T_O, self_consistent (bool, = L >= SOKAL_C*tau_max), dS_l1 (float | None for rung 0).
-    A rung i>=1 is a STABLE step iff BOTH axes hold (exp15 classify_curve:550-551, made regime-aware):
+    A rung i>=1 is a STABLE step iff BOTH axes hold (upstream `classify_curve`, made regime-aware):
       * tau_stable : self_consistent[i]  AND  (rel_tau < TAU_TOL  OR  |dtau| < TAU_ABS_FLOOR)
       * TO_stable  : (dT < STAB_TOL  OR  (small_tau AND self_consistent[i]))  AND  dS_l1[i] < STAB_TOL
     where rel_tau = |tau_max[i]-tau_max[i-1]|/tau_max[i-1], dT = |T_O[i]-T_O[i-1]|/T_O[i], and
     small_tau = both endpoints below the derived cut TAU_ABS_FLOOR/TAU_TOL (~6.67).  The ABSOLUTE floor
     (numpy.isclose rtol+atol) keeps the gate from noise-FAILING a well-mixed small-τ̂ chain whose pure
     relative changes are dominated by sub-resolution estimation noise (run 5b9cbbc, exp1); it is
-    self-gating to the small-τ regime and inert at the τ≈O(10) regime the exp15/16 tests cover.
+    self-gating to the small-τ regime and inert at the τ≈O(10) regime the upstream tests cover.
     self-consistency (L>=SOKAL_C*tau_max) and the L1-normalized SHAPE guard (dS_l1<STAB_TOL) are RETAINED
     ALWAYS, so the gate stays non-vacuous.  cal_stable is True iff TWO CONSECUTIVE rungs are STABLE
-    (consec_stable >= 2, exp15:559).  Annotates each rung with step_class ('STABLE'/'NOT-STABLE') + the
+    (consec_stable >= 2, upstream `classify_curve`).  Annotates each rung with step_class ('STABLE'/'NOT-STABLE') + the
     per-axis residuals (incl. abs_dtau, small_tau); failed_axis accumulates the axis (or axes) that were
     unstable across ALL non-stable rungs (not reset on a stable rung), for the driver's diagnostics — it
     does not affect cal_stable, which is set solely by consec_stable >= 2.
@@ -201,7 +201,7 @@ def classify_calibration_stable(curve):
         else:
             c["step_class"] = "NOT-STABLE"
             # record which axis/axes drove the instability — derived from the per-axis booleans so the
-            # label stays correct under the regime-aware relaxation (matches exp15 classify_curve:563-566
+            # label stays correct under the regime-aware relaxation (matches the upstream `classify_curve`
             # on every τ≈10 rung, where small_tau=False ⇒ not TO_stable == (dT>=STAB_TOL or dS_l1>=STAB_TOL)).
             if not tau_stable:
                 failed_axis.append("tau_hat")
@@ -215,10 +215,10 @@ def classify_calibration_stable(curve):
 
 
 # ================================================================ PART A.2 — provenance / rollback
-# VERBATIM from exp15 pt_p0_calibrate.py:202-241.
+# VERBATIM from the upstream calibration harness.
 def _find_counts(tree):
     """Collect every `count` leaf in an opt_state-like tree (provenance: opt_count == t·n_batches).
-    VERBATIM exp15 pt_p0_calibrate.py:202."""
+    VERBATIM from the upstream calibration harness."""
     out = []
 
     def rec(o):
@@ -245,7 +245,7 @@ def _find_counts(tree):
 
 def _weights_hash(step):
     """16-hex sha1 of (step.model.weights, step.model.biases) — the rollback / weights-distinct check.
-    VERBATIM exp15 pt_p0_calibrate.py:233."""
+    VERBATIM from the upstream calibration harness."""
     h = hashlib.sha1()
     for arr in (step.model.weights, step.model.biases):
         h.update(np.ascontiguousarray(np.asarray(arr), dtype=np.float32).tobytes())
@@ -253,20 +253,21 @@ def _weights_hash(step):
 
 
 def _key_list(dtm):
-    """dtm.key as a plain int list — the probe-RNG isolation invariant. VERBATIM exp15:240."""
+    """dtm.key as a plain int list — the probe-RNG isolation invariant. VERBATIM from the upstream calibration harness."""
     return [int(x) for x in np.asarray(dtm.key).ravel()]
 
 
 # ================================================================ PART A.3 — build_maps + energy_free
-# VERBATIM from exp15 pt_p0_calibrate.py:257-309 (per-block interaction/observable maps + the
-# THREE-term free-conditional energy). The negative-phase program partition is read exactly as exp15
-# did: FREE = program_negative.free_blocks (4 superblocks), CLAMPED = program_negative.clamped_blocks
-# (= b_t). Build-notes §"Training-negative free set — CONFIRMED" pins this for the companion too.
+# VERBATIM from the upstream calibration harness (per-block interaction/observable maps + the
+# THREE-term free-conditional energy). The negative-phase program partition is read exactly as the
+# upstream harness did: FREE = program_negative.free_blocks (4 superblocks), CLAMPED =
+# program_negative.clamped_blocks (= b_t). The design notes ("Training-negative free set") pin this
+# for the companion too.
 def build_maps(step):
     """Build the per-block interaction/observable maps for the gradient observables
     f_a = {edge products s_e0·s_e1, node spins s_n}, the trained per-edge/per-node weights aligned to
     that ordering, and the input↔output COUPLING edges (load-bearing for the conditional energy).
-    VERBATIM exp15 pt_p0_calibrate.py:257."""
+    VERBATIM from the upstream calibration harness."""
     g = step.model.graph
     node_map = g.node_mapping
     bias_nodes = list(g.output_nodes) + list(g.hidden_nodes)
@@ -278,7 +279,7 @@ def build_maps(step):
     e0 = np.array([pos[node_map[e.connected_nodes[0]]] for e in weight_edges], dtype=np.int32)
     e1 = np.array([pos[node_map[e.connected_nodes[1]]] for e in weight_edges], dtype=np.int32)
     bp = np.array([pos[node_map[n]] for n in bias_nodes], dtype=np.int32)
-    # trained params aligned to this ordering (NEW exp15): index by the SAME base_graph_edges / output+hidden
+    # trained params aligned to this ordering (NEW): index by the SAME base_graph_edges / output+hidden
     edge_gidx = np.array([g.edge_mapping[e] for e in weight_edges], dtype=np.int64)
     bias_gidx = np.array([node_map[n] for n in bias_nodes], dtype=np.int64)
     W_e = np.asarray(step.model.weights)[edge_gidx].astype(np.float64)
@@ -312,7 +313,7 @@ def energy_free(spins_2d, clamp_spins, maps):
                               + Σ_{coupling edges} cw_c s_free[out] s_in[in] )
     spins in {-1,+1}; β-FREE. The coupling term (third) is REQUIRED — s_in is replica-identical but
     multiplies the differing free output spin, so it does NOT cancel. This is the building block the
-    Task-4 compat-core sits on. VERBATIM exp15 pt_p0_calibrate.py:296."""
+    Task-4 compat-core sits on. VERBATIM from the upstream calibration harness."""
     s0 = spins_2d[:, maps["edge_pos0"]]
     s1 = spins_2d[:, maps["edge_pos1"]]
     e_edge = -(s0 * s1) @ maps["W_e"]
@@ -322,7 +323,7 @@ def energy_free(spins_2d, clamp_spins, maps):
 
 
 # ================================================================ PART A.4 — MANDATORY trained-weight refresh
-# VERBATIM from exp15-recheck/recheck.py:74-129 + internal_exp.py:186-242. The exp15/16 init-weight
+# VERBATIM from the upstream recheck / validation harness. The init-weight
 # bug fix: AnnealingIsingSamplingProgram's constructor reads step.model.FACTORS (stale INIT — DTM.train
 # updates step.model.weights and the program interactions but NOT step.model.factors, DTM.py:337-340),
 # so a freshly-built program samples INIT weights. The refresh re-derives per_block_interactions from
@@ -332,8 +333,8 @@ def energy_free(spins_2d, clamp_spins, maps):
 def refresh_program_weights(prog, step):
     """Inject the CURRENT trained step.model.weights/biases into a freshly-built sampling program's
     per_block_interactions (the program constructor read stale INIT factors). Returns the refreshed
-    program. Recipe VERBATIM from exp15-recheck/recheck.py:87-88 (the `ni = get_new... ; tree_at`
-    body) — MUST be called before EVERY probe and EVERY L_compat build (build-notes §refresh)."""
+    program. Recipe VERBATIM from the upstream recheck harness (the `ni = get_new... ; tree_at`
+    body) — MUST be called before EVERY probe and EVERY L_compat build (see design notes)."""
     import equinox as eqx
 
     from thrmlDenoising.sampling_specs import get_new_per_block_interactions
@@ -344,7 +345,7 @@ def refresh_program_weights(prog, step):
 
 def _collect_weight_interactions(per_block_interactions, sink):
     """Recurse a per_block_interactions tree collecting (weight_global_indices, weights) leaf pairs.
-    VERBATIM the `rec` closure from exp15-recheck/recheck.py:109-118."""
+    VERBATIM the `rec` closure from the upstream recheck harness."""
     def rec(o):
         if hasattr(o, "weights") and hasattr(o, "weight_global_indices"):
             sink.append((np.asarray(o.weight_global_indices), np.asarray(o.weights)))
@@ -364,7 +365,7 @@ def refreshed_weight_proof(step) -> dict:
                                step.model.weights (maxabs < 1e-6); the fix took.
       * constructor_was_stale — the UN-refreshed constructor would have given INIT (maxabs > 1e-6);
                                the bug premise holds.
-    BOTH must be True. Keys match the wiki exactly. VERBATIM exp15-recheck/recheck.py:101-129."""
+    BOTH must be True. Keys match the upstream harness exactly. VERBATIM from the upstream recheck harness."""
     import jax.numpy as jnp
 
     from thrmlDenoising.annealing_graph_ising import AnnealingIsingSamplingProgram
@@ -391,7 +392,7 @@ def refreshed_weight_proof(step) -> dict:
 
 def eqx_tree_at_interactions(prog, ni):
     """eqx.tree_at(lambda p: p.per_block_interactions, prog, ni) — the single injection used by both
-    refresh_program_weights and refreshed_weight_proof (VERBATIM exp15-recheck recheck.py:120)."""
+    refresh_program_weights and refreshed_weight_proof (VERBATIM from the upstream recheck harness)."""
     import equinox as eqx
 
     return eqx.tree_at(lambda p: p.per_block_interactions, prog, ni)

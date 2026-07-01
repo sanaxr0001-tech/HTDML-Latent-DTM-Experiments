@@ -11,7 +11,7 @@ free-energy term added to the encoder/decoder loss so the encoder is steered tow
   bound does NOT guarantee that minimizing it improves *sampled*-DTM quality; the gap `F_MF − F_exact`
   is reported as the honesty metric (fixture check d-ii). Do not call this an exact DTM free energy.
 
-STRUCTURE (decisive, from build-notes §"Stage-C compatibility free energy — STRUCTURAL TRUTH",
+STRUCTURE (decisive, from the design notes §"Stage-C compatibility free energy — STRUCTURAL TRUTH",
 re-verified against the real 4_4 graph — see tests/fixture_6_4.py d-i):
 
   * Clamp = the **POSITIVE-phase partition** `program_positive` (sampling_specs.py:110):
@@ -19,7 +19,7 @@ re-verified against the real 4_4 graph — see tests/fixture_6_4.py d-i):
         CLAMPED = {image_output (= b0-derived), label_output, conditioning = b_t}
     This is NOT the training-negative partition (that frees the outputs). Maps are built from
     `program_positive`, on TRAINED globals (refresh_program_weights + refreshed_weight_proof first —
-    the exp15/16 stale-factors bug).
+    the stale-factors bug).
 
   * The grid is strictly bipartite (chessboard): base edges connect the UPPER half
     {upper_hidden, image_output, label_output} to the LOWER half {lower_hidden} ONLY. So:
@@ -296,7 +296,7 @@ def F_MF(clamp_spins, maps, beta, n_steps=MF_STEPS, damping=MF_DAMPING, m_init=M
 
 # ====================================================================== per-step + total L_compat
 def refreshed_compat_maps(step):
-    """Refresh the trained weights into a freshly-built positive-phase program (the exp15/16 stale-
+    """Refresh the trained weights into a freshly-built positive-phase program (the stale-
     factors guard), assert the proof, THEN build the compat maps from program_positive. Use this (not
     build_compat_maps directly) for any real L_compat build — it enforces the mandatory refresh-proof.
 
@@ -310,7 +310,7 @@ def refreshed_compat_maps(step):
     if not (proof["constructor_was_stale"] and proof["refresh_ok"]):
         raise AssertionError(
             f"refreshed_weight_proof failed for compat build: {proof} — the trained-weight refresh "
-            "guard (exp15/16 bug) did not clear; refusing to build L_compat on stale weights")
+            "guard (stale-factors bug) did not clear; refusing to build L_compat on stale weights")
     return build_compat_maps(step), proof
 
 

@@ -56,7 +56,7 @@ INCEPTION_PY_PATH = (
 )
 PINS_MD_PATH = REPO_ROOT / "PINS.md"
 
-# URL from build-notes.md (inception.py:39-40, verified)
+# URL from the vendored inception.py source (inception.py:39-40, verified)
 INCEPTION_PICKLE_URL = (
     "https://www.dropbox.com/s/xt6zvlvt22dcwck/inception_v3_weights_fid.pickle?dl=1"
 )
@@ -225,7 +225,7 @@ def patch_inception_py() -> bool:
     Returns True if the patch was applied (or was already applied).
     Idempotent: if the marker is already present, skips.
 
-    Targets inception.py:46-47 (build-notes.md verified):
+    Targets inception.py:46-47 (verified against the vendored source):
         ckpt_file = utils.download(self.ckpt_path)
         self.params_dict = pickle.load(open(ckpt_file, "rb"))
     """

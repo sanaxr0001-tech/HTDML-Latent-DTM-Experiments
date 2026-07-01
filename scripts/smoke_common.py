@@ -4,12 +4,12 @@ Builds the REAL 44_12 companion DTM on REAL Fashion-MNIST-encoded latents and ex
 companion path (encode → fit → probe → generate → decode → FID).  Used by BOTH
 ``scripts/smoke.py`` (plumbing verification) and ``scripts/calibrate_epoch_cost.py`` (epoch cost +
 trajectory-adequacy freeze), so a single 1hr GPU session can run smoke + calibration on ONE trained
-DTM (the build-notes §"TASK-12 SCOPE" cap).
+DTM (the pre-registered Task-12 scope cap).
 
-Design (build-notes-faithful):
+Design (reference-faithful):
   * The DTM is constructed via a ``smoke_testing_196_1_C`` dataset name → ``is_smoke_test=True`` so
     the constructor routes ``eval_epoch`` to the gen-based ``_smoke_eval_epoch`` (NOT the 28-hardcoded
-    ``do_draw_and_fid``, which would crash on the 196-wide latent — build-notes §"Fork Seam A").  We
+    ``do_draw_and_fid``, which would crash on the 196-wide latent — see the "Fork Seam A" design note).  We
     pass ``evaluate_every=0`` to ``.fit`` so NO eval epoch runs at all (the smoke does generate/decode/
     FID itself as explicit stages).
   * The ``is_smoke_test`` constructor forces ``batch_size = len(registered smoke dataset)``
@@ -20,7 +20,7 @@ Design (build-notes-faithful):
 
 NOTHING here trains the autoencoder to convergence — Stage A is a tiny pre-train (the smoke verifies
 the encode→decode plumbing, not encoder quality).  NO Stage-C / joint / control / two-seed (the
-researcher-conferred Task-12 scope excludes them).
+pre-registered Task-12 scope excludes them).
 """
 
 from __future__ import annotations

@@ -698,13 +698,13 @@ def test_g5c_live_acp_coefficient_IS_stored_on_epoch_record():
 
 def test_g6a_refresh_proof_passes_on_fixture():
     """The per-step trained-weight-refresh proof passes on the fixture step:
-    constructor_was_stale=True AND refresh_ok=True (the exp15/16 bug guard)."""
+    constructor_was_stale=True AND refresh_ok=True (the stale-factors bug guard)."""
     _dtm, step = _build_fixture_step()
     proof = pp.refreshed_weight_proof(step)
 
     assert proof["constructor_was_stale"] is True, (
         f"constructor_was_stale=False (stale_vs_trained_maxabs={proof['stale_vs_trained_maxabs']}) — "
-        "the exp15/16 bug premise does not hold on the fixture; the guard is VACUOUS")
+        "the stale-factors bug premise does not hold on the fixture; the guard is VACUOUS")
     assert proof["refresh_ok"] is True, (
         f"refresh_ok=False (refreshed_vs_trained_maxabs={proof['refreshed_vs_trained_maxabs']}) — "
         "the trained-weight refresh did NOT take; every probe/compat build gates on this")
@@ -1085,8 +1085,8 @@ def test_g11_no_wiki_edits_no_claim_status_tags():
     """The companion makes NO wiki edits / no claim-status tags.
     The 6 outcome tokens are companion-local (never wiki tags).
 
-    Assert: the TOKENS list in driver.py does NOT include any wiki claim-status tags.
-    Assert: the companion's src/ tree has no imports from the wiki."""
+    Assert: the TOKENS list in driver.py does NOT include any external claim-status tags.
+    Assert: the companion's src/ tree carries no absolute personal/studio paths (portability)."""
     # (1) TOKENS are companion-local (not wiki claim-status tags).
     wiki_tags = {"solid", "conjectured", "proven-here", "validated"}
     companion_tokens = set(D.TOKENS)
@@ -1102,16 +1102,17 @@ def test_g11_no_wiki_edits_no_claim_status_tags():
     assert companion_tokens == expected_tokens, (
         f"TOKENS mismatch: got {companion_tokens}, want {expected_tokens}")
 
-    # (3) No import of wiki paths in src/htdml/.
+    # (3) src/htdml/ stays self-contained: no absolute personal/studio paths (portability).
     src_dir = _REPO_ROOT / "src" / "htdml"
-    wiki_repo_name = "internal-project"
+    forbidden_paths = ("/home/", "/teamspace/")
     for py_file in src_dir.glob("*.py"):
         text = py_file.read_text()
-        assert wiki_repo_name not in text, (
-            f"{py_file.name} imports from the wiki repo ({wiki_repo_name}) — isolation violated")
+        for marker in forbidden_paths:
+            assert marker not in text, (
+                f"{py_file.name} contains an absolute path '{marker}' — src/ must stay portable")
 
     print(f"\n[G11] measure-only: TOKENS={sorted(expected_tokens)} (companion-local); "
-          f"no wiki imports; no claim-status tags  PASS")
+          f"src/ portable; no claim-status tags  PASS")
 
 
 # ===========================================================================
@@ -1233,7 +1234,7 @@ def test_g12_route_seed_all_6_tokens_reachable():
 def test_g12_route_run_all_6_tokens_reachable_from_seed_pairs():
     """(NEW) Each run-level token is producible by ≥1 seed-pair via route_run.
 
-    Token→seed-pair map (build-notes §"Two-seed run-level aggregation"):
+    Token→seed-pair map (two-seed run-level aggregation):
       POSITIVE            ← (PO, PO)  both seeds pass all gates
       HTDML-MARGIN-NEGATIVE ← (MN, MN) or (MN, PO) or (PO, MN)
       QUALITY-LOSS        ← (QL, ·) or (·, QL)

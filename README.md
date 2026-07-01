@@ -2,7 +2,7 @@
 
 **Scope:** Isolated feasibility and signal study — NOT operational-theorem validation, NOT a
 hardware-energy claim. This companion repo implements the guarded joint encoder–binary-latent-DTM–decoder
-pipeline described in the HTDML latent-DTM companion plan (internal design plan).
+pipeline for the HTDML latent-DTM feasibility study.
 
 ---
 
@@ -13,8 +13,7 @@ pipeline described in the HTDML latent-DTM companion plan (internal design plan)
 > worst of N_R ≈ 16 Rademacher sketches — across all 4 reverse EBM layers.
 
 This is a feasibility/signal claim. A positive result is evidence that the joint-training objective
-does not destroy the mixing budget; it does not validate the operational internal-project
-theorem.
+does not destroy the mixing budget; it does not validate any operational trainability theorem.
 
 ---
 
@@ -25,8 +24,8 @@ theorem.
   dependency surfaces.
 - **Companion is the only mutable target:** `src/htdml/`, `harness/`, `tests/`, `scripts/` are
   written here and nowhere else.
-- **No wiki edits / no tag moves:** results are reported as outcome tokens (see below). They
-  feed the wiki's operational [conjectured] tier only after researcher conferral.
+- **Outcome tokens only:** results are reported as the companion-local outcome tokens below;
+  they are not claim-status tags.
 - **Path isolation:** `src/htdml/paths.py::bootstrap_paths()` prepends the vendor paths at import
   time, shadowing conda site-packages thrml. All scripts and tests must `import htdml` before
   importing `thrml` or `thrmlDenoising`.
@@ -56,7 +55,7 @@ negative token.
 
 ```bash
 # All commands use conda base python
-/home/user/miniconda3/bin/python -m pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
 Pins are recorded in `PINS.md`. Config constants are frozen there; do not change them without

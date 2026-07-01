@@ -2,7 +2,7 @@
 
 **RAN on H200 2026-06-27 → `HTDML-MARGIN-NEGATIVE` (both seeds; measurement-VALID).** Code `a26dbce`,
 `MODE=full BUDGET_H=16.0 SEEDS=1,2 OUTDIR=experiments/exp2-cal-gate-fix/artifacts`, **11.78 GPU-h**, no
-budget wall. MEASURE-ONLY — no wiki tag. Raw artifacts in `artifacts/` (`run_stage_c.json`, `report.md`,
+budget wall. MEASURE-ONLY — companion-local token only. Raw artifacts in `artifacts/` (`run_stage_c.json`, `report.md`,
 `run.log`).
 
 ## Two results — keep them separate
@@ -37,7 +37,7 @@ joint 1.987 < 0.90×2.486; seed-2 block-3: joint 1.358 < 0.90×2.22. The improve
 control Q, or τ_int,Y ≤ 0.75× control) was never met for either seed → run token `HTDML-MARGIN-NEGATIVE`
 (POSITIVE requires BOTH seeds to pass; neither did).
 
-## Prediction vs outcome (vs `pre-commitment.md`)
+## Prediction vs outcome (vs the pre-registration)
 
 - **Pre-registered prediction (exp2):** "cal gate now passes at trained τ̂≈2 → Stage C runs → a real
   joint-steering verdict." → **CONFIRMED** (empirically measured): both seeds passed cal, Stage C ran,
@@ -52,7 +52,7 @@ A clean, informative negative — the experiment's actual question got a real an
 (exp1 couldn't even ask it). On this setup the `Q`-guarded free-energy-compat steering does **not** yield
 a mixing-margin benefit; it slightly *degrades* the margin while leaving quality intact. This is **scoped**
 — feasibility/signal study, **n=2 seeds, λ=1.0, 44_12 DTM, Fashion-MNIST, the deterministic mean-field
-compat surrogate.** It is **not** a refutation of the broader HTDML idea, and **not** a wiki-theorem
+compat surrogate.** It is **not** a refutation of the broader HTDML idea, and **not** a theorem-level
 result (companion-local token, MEASURE-ONLY).
 
 ## Next (cheap now — checkpoints persisted)
@@ -65,4 +65,4 @@ answer. Researcher's call.
 ## Provenance
 Code `a26dbce`; studio `s_STUDIO` (htdml / TEAMSPACE/htdml), stopped after the run.
 Constants: λ_joint=1.0, ESS_min=10, C=5.0, L_traj=400, N_chains=4, N_R=16. 11.78 GPU-h. MEASURE-ONLY,
-no wiki tag move.
+companion-local token only.

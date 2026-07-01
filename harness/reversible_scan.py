@@ -1,12 +1,11 @@
 """Reversible-scan order-coin toggle helper + patch-live detector.
 
-Ported from the wiki harness COPY-source
-`internal-project/experiments/internal-exp/apply_shared_coin_toggle.py`
-(the v2 shared/per-chain order-coin toggle). The PATCH itself lives in the vendored overlay
+Ported from an internal reference harness (the v2 shared/per-chain order-coin toggle). The PATCH
+itself lives in the vendored overlay
 `vendor/thrml_overlay/thrml/block_sampling.py` (v1 reversible scan + v2 toggle, applied at build
 time). THIS module is the *consumer-side* helper:
 
-  * `is_patch_live()` — mirrors exp15's `is_patch_live`: asserts the reversible kernel + v2 order-coin
+  * `is_patch_live()` — mirrors the upstream `is_patch_live`: asserts the reversible kernel + v2 order-coin
     toggle is actually the live `thrml.block_sampling.sample_blocks` (marker constant present AND the
     forward/reverse coin + `order_subkey` toggle are in the live source). A detector, not a patcher.
   * `make_order_key(...)` / `SHARED` / `PER_CHAIN` — the two order-coin modes the runner selects:
@@ -39,14 +38,14 @@ bootstrap_paths()
 SHARED = "shared_per_sweep"        # training: one coin/super-sweep for the whole batch (fast path)
 PER_CHAIN = "per_chain_per_sweep"  # diagnostics: independent coin per chain (order_key=None default)
 
-# The constant the overlay defines when the reversible v2 patch is live (mirror exp15 marker check).
+# The constant the overlay defines when the reversible v2 patch is live (mirror the upstream marker check).
 EXPECTED_MARKER = "HTDML-REVERSIBLE-SCAN-v2:fwd-rev-symmetrized-block-gibbs;K=half(P_AB+P_BA);order-coin-toggle"
 
 
 def is_patch_live() -> tuple[bool, str]:
     """Detect whether the reversible ½(P_AB+P_BA) v2 overlay patch is the LIVE thrml kernel.
 
-    Mirrors exp15's `is_patch_live`: checks (a) the marker constant is importable from
+    Mirrors the upstream `is_patch_live`: checks (a) the marker constant is importable from
     `thrml.block_sampling`, and (b) the live `sample_blocks` source carries the v2 reversible
     forward/reverse coin + `order_subkey` toggle. Returns `(live, detail)`.
     """

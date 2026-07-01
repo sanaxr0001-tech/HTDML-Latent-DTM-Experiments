@@ -36,7 +36,7 @@ OVERLAY_PREFIX = str((_REPO_ROOT / "vendor" / "thrml_overlay").resolve())
 
 # --------------------------------------------------------------------------- (1) patch-live detector
 def test_marker_constant_present():
-    """The overlay must define the patch-live marker constant (mirror exp15 is_patch_live)."""
+    """The overlay must define the patch-live marker constant (mirror the reference is_patch_live)."""
     import thrml.block_sampling as bs
 
     assert hasattr(bs, "REVERSIBLE_SCAN_MARKER"), "REVERSIBLE_SCAN_MARKER absent from overlay"

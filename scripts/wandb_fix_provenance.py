@@ -2,7 +2,7 @@
 Correct the auto-captured provenance on the W&B 'Htdml' runs.
 
 The import ran on the laptop, so W&B captured the LAPTOP as the runs' environment
-(NVIDIA RTX 4060, host 'laptop-host', CPython 3.13, today's date). But the science ran on
+(NVIDIA RTX 4060, CPython 3.13, today's date). But the science ran on
 an H200 Lightning.ai Studio under a jax-cuda12 / CPython 3.12.3 venv. This script
 rewrites each run's environment to the true H200 configuration:
 

@@ -28,7 +28,7 @@ from .observers import AbstractObserver, ObserveCarry, StateObserver
 SuperBlock: TypeAlias = tuple[Block, ...] | Block
 _SD: TypeAlias = Mapping[Type[AbstractNode], PyTree[jax.ShapeDtypeStruct]]
 
-# HTDML patch-live MARKER (mirror exp15 is_patch_live). The reversible forward/reverse symmetrized
+# HTDML patch-live MARKER (mirrors an internal reference patch-live marker). The reversible forward/reverse symmetrized
 # block-Gibbs scan ( K = 1/2(P_AB + P_BA) ) + the v2 shared/per-chain order-coin toggle live in
 # `sample_blocks` below. A detector asserts this constant is present + the v2 toggle is in the source.
 REVERSIBLE_SCAN_MARKER = "HTDML-REVERSIBLE-SCAN-v2:fwd-rev-symmetrized-block-gibbs;K=half(P_AB+P_BA);order-coin-toggle"
@@ -387,8 +387,7 @@ def sample_blocks(
     #   * order_subkey given   -> SHARED coin (training): coin from a key shared across chains (non-
     #     batched under vmap) => lax.cond stays true control flow => ONE sweep (~1x, the speedup).
     #     Per-block Gibbs NOISE stays per-chain (from `key`); only the visitation order is shared.
-    # Justification + numerical self-adjointness gate:
-    #   <thermo-wiki>/experiments/internal-exp/patches/reversible-scan.md
+    # Justification + numerical self-adjointness gate: see the accompanying design notes.
     if order_subkey is None:
         order_key, block_key = jax.random.split(key)
         coin = jax.random.bernoulli(order_key)
@@ -433,7 +432,7 @@ def _run_blocks(
     """
     Perform `n_iters` steps of block sampling.
 
-    EXP4: `order_key=None` -> each sweep uses the PER-CHAIN order coin (sample_blocks draws it). If
+    Order-coin behavior: `order_key=None` -> each sweep uses the PER-CHAIN order coin (sample_blocks draws it). If
     given, it is split into one shared order-subkey per sweep => SHARED (across-chain) coin (training).
     """
     if n_iters == 0:

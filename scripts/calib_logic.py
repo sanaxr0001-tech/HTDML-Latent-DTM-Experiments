@@ -4,14 +4,14 @@ Separated from ``scripts/calibrate_epoch_cost.py`` so the NON-GPU logic (the wal
 guard, the trajectory-adequacy freeze rules for ``L_traj`` / ``N_chains`` / ``N_R`` / ``C``, and the
 a-priori ``ESS_min`` rule) is unit-testable on CPU WITHOUT any ``dtm.train`` / GPU sampling.
 
-The Task-12 split (researcher-conferred, build-notes §"TASK-12 SCOPE"):
+The Task-12 split (pre-registered scope, see design notes):
   * ``L_traj`` / ``N_chains`` / ``N_R`` / ``C``  are FROZEN FROM MEASUREMENT (runtime/adequacy
     quantities — these functions turn a measured τ̂ + the budget into the frozen values);
   * ``ESS_min`` is NOT a calibration output.  It is set by :func:`ess_min_rule`, an a-priori
     scientific ACCEPTANCE threshold defined BEFORE any joint/control comparison (there is none in
     Task 12).  It must NOT be reverse-engineered from a favorable smoke result.
 
-Bias caveat (build-notes §"Half-Sokal T_O bias"): the half-Sokal τ̂ is ~0.86× the exact τ.  The
+Bias caveat (design notes, "Half-Sokal T_O bias"): the half-Sokal τ̂ is ~0.86× the exact τ.  The
 ABSOLUTE thresholds (ESS_min, C) are frozen against the SAME biased estimator → self-consistent; the
 companion only ever uses τ̂/Q as a RELATIVE ruler, so the bias cancels in the gates.
 """
@@ -32,7 +32,7 @@ class BudgetWall(RuntimeError):
 
 @dataclass
 class WallClock:
-    """A monotonic wall-time budget guard for the 1hr local-4060 cap (researcher-conferred).
+    """A monotonic wall-time budget guard for the 1hr local-4060 cap.
 
     Usage::
 
@@ -79,11 +79,11 @@ class WallClock:
 
 
 # ============================================================================== ESS_min a-priori RULE
-# K=50 retained-window convention (build-notes §E1 / PINS).  ESS_hat = K / (2·τ_int,Y).
+# K=50 retained-window convention (see PINS).  ESS_hat = K / (2·τ_int,Y).
 K_WINDOW = 50
 
 # The a-priori minimum effective-sample count.  This is a SCIENTIFIC ACCEPTANCE threshold fixed
-# BEFORE any joint/control comparison, NOT a calibration output (build-notes §"TASK-12 SCOPE").
+# BEFORE any joint/control comparison, NOT a calibration output (see design notes).
 ESS_MIN_FLOOR = 10.0
 
 
@@ -102,7 +102,7 @@ def ess_min_rule(k_window: int = K_WINDOW, ess_floor: float = ESS_MIN_FLOOR) -> 
     samples to trust τ̂).  ``ESS_min`` is therefore ``ESS_FLOOR`` directly.
 
     This value is INDEPENDENT of any measured τ̂, of the smoke result, and of any joint-vs-control
-    comparison.  It is recorded in pre-commitment.md + PINS so the later H200 acceptance is reproducible.
+    comparison.  It is pre-registered alongside PINS so the later H200 acceptance is reproducible.
 
     Equivalent τ ceiling (diagnostic only): ESS_hat ≥ ESS_min  ⟺  τ_int,Y ≤ K/(2·ESS_min).
 
@@ -129,15 +129,15 @@ def ess_min_rule(k_window: int = K_WINDOW, ess_floor: float = ESS_MIN_FLOOR) -> 
 # ============================================================================== freeze-FROM-MEASUREMENT
 # C — the trajectory-adequacy factor in the gate L_traj ≥ C·τ̂.  This is the SAME self-consistency
 # constant the half-Sokal estimator uses (pp.SOKAL_C = 5.0): a retained process is "resolved" only
-# when its length is ≥ C times the integrated autocorrelation time.  Frozen at the validated wiki
-# value (build-notes §"Probe K=50 convention" gate (i): trajectory adequacy L_traj ≥ C·τ̂).
+# when its length is ≥ C times the integrated autocorrelation time.  Frozen at the validated
+# reference value (design notes, "Probe K=50 convention" gate (i): trajectory adequacy L_traj ≥ C·τ̂).
 C_TRAJ_ADEQUACY = 5.0
 
-# N_R — the fixed shared Rademacher sketch count.  Target ≈16 (build-notes / brief): the worst-of-N_R
+# N_R — the fixed shared Rademacher sketch count.  Target ≈16 (design notes / brief): the worst-of-N_R
 # screening reduction needs enough random projections that the projection standard error is small but
 # few enough to stay cheap.  16 i.i.d. ±1 sketches give a worst-of-16 screen with the projection SE on
 # any single sketch ~1/√(n_chains·L_traj) (the sketch itself is exact ±1, variance 1 per component);
-# 16 is the wiki/exp16 value and the brief's target.
+# 16 is the fixed Rademacher screen count and the brief's target.
 N_R_TARGET = 16
 
 
@@ -153,12 +153,12 @@ def freeze_from_measurement(
     l_traj_cap: Optional[int] = None,
 ) -> dict:
     """Turn a MEASURED τ̂ (half-Sokal, from the smoke calibration) into the frozen runtime/adequacy
-    constants ``L_traj`` / ``N_chains`` / ``N_R`` / ``C`` (build-notes §"TASK-12 SCOPE").
+    constants ``L_traj`` / ``N_chains`` / ``N_R`` / ``C`` (see design notes).
 
     Freeze rules (all FROM MEASUREMENT / adequacy):
 
     * ``C``  = trajectory-adequacy factor (gate (i): ``L_traj ≥ C·τ̂``).  Frozen at the validated
-      wiki self-consistency value ``C = pp.SOKAL_C = 5.0`` (NOT measured per-run; it is the estimator's
+      self-consistency value ``C = pp.SOKAL_C = 5.0`` (NOT measured per-run; it is the estimator's
       own resolution constant — the MEASUREMENT confirms the chosen ``L_traj`` satisfies ``L_traj ≥ C·τ̂``).
 
     * ``L_traj`` ≫ τ̂ so ρ_Y(50) is estimable AND the white-noise autocorrelation SE ≪ 0.05.  The
@@ -228,7 +228,7 @@ def freeze_from_measurement(
                 f"(projection SE ≈ 1/√(n_chains·L_traj) ≤ {se_target}); floored at 4 for a "
                 f"non-degenerate chain-axis vmap"
             ),
-            N_R=f"N_R={n_r}: fixed Rademacher screen count (wiki/exp16 target ≈16)",
+            N_R=f"N_R={n_r}: fixed Rademacher screen count (≈16)",
             C=(
                 f"C={c}: trajectory-adequacy factor = the half-Sokal self-consistency constant "
                 f"(pp.SOKAL_C); MEASUREMENT confirms L_traj ≥ C·τ̂"

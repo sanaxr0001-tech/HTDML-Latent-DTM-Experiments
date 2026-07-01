@@ -14,7 +14,7 @@ MEASURE-ONLY: this only *mirrors* the recorded outcome tokens and raw metrics in
 W&B for visualization. It computes no new science and moves no claim status. The
 authoritative per-seed verdict is the driver-emitted `seed_token`; the recomputed
 gate legs (`quality_held` / `improvement_met` / ...) are descriptive reproductions
-of the a-priori pre-commitment.md predicate and are asserted to agree with that
+of the a-priori pre-registration predicate and are asserted to agree with that
 token (`gate_consistent`) — they are not a new acceptance bar.
 
 Usage:
@@ -36,7 +36,7 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
 
-# --- a-priori gate thresholds (verbatim from ../pre-commitment.md / exp3 report) ---
+# --- a-priori gate thresholds (verbatim from the exp3 report) ---
 BCE_TOL = 1.05          # BCE_joint <= 1.05 * BCE_control
 FID_TOL = 1.10          # FID_joint <= 1.10 * FID_control
 Q_IMPROVE = 1.25        # lower-quartile Q_joint >= 1.25 * Q_control
@@ -45,7 +45,7 @@ PLATEAU_TOL = 0.05      # |r_grad[50]| <= 0.05
 ESS_MIN = 10.0
 C_ADQ = 5.0             # L_traj >= C * tau_hat
 
-# probe constants (RESEARCH.md "Q ruler") — recorded into config for provenance
+# probe constants (the "Q ruler") — recorded into config for provenance
 PROBE_K, PROBE_B, PROBE_S = 50, 400, 8
 
 # --- the eight source points (one run_stage_c.json each, 2 seeds inside) ---
@@ -324,7 +324,7 @@ GROUP_NOTES = {
             "HTDML-MARGIN-NEGATIVE at lambda=1.0: quality held, steering over-steered (Q_drop).",
     "exp3": "Lower-lambda sweep {0.1,0.3,0.5} on exp2's Stage-B -> HTDML-MARGIN-NEGATIVE "
             "at every lambda. Per-seed tau-passes not distinguishable from control-denominator "
-            "noise (Fisher p~0.46). Terminal verdict conferred 2026-06-27.",
+            "noise (Fisher p~0.46). Terminal verdict finalized 2026-06-27.",
 }
 
 

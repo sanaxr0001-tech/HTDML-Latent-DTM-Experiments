@@ -4,12 +4,11 @@ For a given reverse **layer = diffusion step (0..3)** of the LatentDTM, on the F
 phase, this computes the operational gradient ``g = E_data[f] − E_model[f]`` and the K=50-convention
 mixing scalars (τ_int,Y, ESS_hat, Q_struct^⊥) that the Task-9 driver's gates read.
 
-The measurement pattern is PORTED from the wiki's exp16 operational-validation runner
-(``…/experiments/internal-exp/exp16_validate.py``):
+The measurement pattern is PORTED from an internal operational-validation reference harness:
 
   * ``build_observable_maps`` / ``positive_moments``   → the POSITIVE (data-clamped) phase, plain
     ``estimate_moments`` Gibbs (fast, subdominant per F4);
-  * exp16's PT cold-chain negative moments             → REPLACED here by the companion's
+  * the reference's PT cold-chain negative moments      → REPLACED here by the companion's
     SINGLE-replica REVERSIBLE kernel (``sample_with_observation`` through the live ½(P_AB+P_BA)
     overlay, ``order_key=None`` = per-chain diagnostics), NOT a PT ladder;
   * ``run_calibration``                                → the per-layer T_O doubling-stability probe;
@@ -19,16 +18,16 @@ Everything that touches sokal / Rademacher / K=50 scalars is DELEGATED to
 ``harness.probe_primitives`` (``sokal_profile_from_spins``, ``probe_scalars``, the Rademacher
 worst-of-N_R) — this module does NOT re-derive that math.
 
-THE MANDATORY GUARD (the exp15/16 bug): before ANY sampling for a layer, the step's negative
+THE MANDATORY GUARD (the stale-factors bug): before ANY sampling for a layer, the step's negative
 program is refreshed from the CURRENT trained globals (``pp.refresh_program_weights``) and the
 HARD-HALT ``pp.refreshed_weight_proof(step)`` (``constructor_was_stale ∧ refresh_ok``) is asserted.
 ``AnnealingIsingSamplingProgram``'s constructor reads stale INIT ``model.factors``; without the
-refresh the probe would sample INIT weights (exp15 P0-RESOLVED + exp16 F4-fail were INVALID for the
-trained DTM for exactly this reason — exp15-recheck confirmed).
+refresh the probe would sample INIT weights (an earlier internal result was INVALID for the
+trained DTM for exactly this reason — a re-check confirmed).
 
-T_O / Q bias caveat (build-notes §"Half-Sokal T_O bias"): the verbatim half-Sokal T_O estimator is
+T_O / Q bias caveat (design notes §"Half-Sokal T_O bias"): the verbatim half-Sokal T_O estimator is
 systematically ~0.86× the exact T_O (so τ_int,Y ~0.86× low, ESS_hat / Q ~1.16× high).  The probe
-returns the BIASED values AS-IS (byte-identical to the validated wiki math); the driver uses RELATIVE
+returns the BIASED values AS-IS (byte-identical to the validated reference math); the driver uses RELATIVE
 comparisons + Task-12 calibrated thresholds, so the systematic bias CANCELS.  Do NOT "correct" it.
 
 CPU: ``dtm.train`` is GPU-only; the probe NEVER trains.  It is unit-tested on the small REAL 4_4
@@ -57,7 +56,7 @@ import numpy as np  # noqa: E402
 
 from harness import probe_primitives as pp  # noqa: E402
 
-# K=50 retained-window convention (build-notes §E1; mirrors pp.K_WINDOW / B_WARMUP / STRIDE_SWEEPS).
+# K=50 retained-window convention (design notes §E1; mirrors pp.K_WINDOW / B_WARMUP / STRIDE_SWEEPS).
 K_WINDOW = pp.K_WINDOW          # 50
 B_WARMUP = pp.B_WARMUP          # 400
 STRIDE_SWEEPS = pp.STRIDE_SWEEPS  # 8
@@ -69,7 +68,7 @@ def _resolve_dtm(model):
 
 
 def _tile_clamp(data, n):
-    """Broadcast each clamped-block tuple to the chain axis (exp16 tile_clamp)."""
+    """Broadcast each clamped-block tuple to the chain axis (reference tile_clamp)."""
     return [jnp.broadcast_to(a, (n,) + a.shape[1:]) for a in data]
 
 
@@ -79,7 +78,7 @@ def _blocks_to_free_spins(traj_blocks):
     ``traj_blocks`` is the StateObserver output under a chain-vmap: a list (one per free block, in
     ``free_blocks`` order) of arrays ``(n_chains, L, block_len)`` of bit {0,1}.  This concatenation
     order MATCHES ``build_maps``' ``free_global`` ordering (both iterate ``free_blocks`` in order),
-    so the resulting columns align with the exp15 observable maps.  bit→spin via ``2x−1`` (the exp15
+    so the resulting columns align with the reference observable maps.  bit→spin via ``2x−1`` (the reference
     ``_blocks_to_free_spins`` convention, ising.py:204)."""
     cat = jnp.concatenate([jnp.asarray(b) for b in traj_blocks], axis=-1)
     return 2.0 * np.asarray(cat).astype(np.float64) - 1.0
@@ -93,7 +92,7 @@ class TrainabilityProbe:
     uses for the Q-CALIBRATION-FAIL gate.
     """
 
-    # The 7 headline scalars (build-notes §"Probe K=50 convention" / brief §5).
+    # The 7 headline scalars (design notes §"Probe K=50 convention" / brief §5).
     HEADLINE_KEYS = (
         "r_grad[1]", "r_grad[50]", "tau_int_Y", "ESS_hat", "Q_struct_perp", "gradient_norm", "layer",
     )
@@ -101,12 +100,12 @@ class TrainabilityProbe:
     # Diagnostics use the PER-CHAIN reversible kernel (order_key=None default in the overlay).
     ORDER_KEY = None
 
-    # ====================================================================== map builders (exp16 port)
+    # ====================================================================== map builders (reference port)
     @staticmethod
     def build_observable_maps(step):
-        """exp16 build_observable_maps (verbatim port): observable node/edge maps for
+        """Reference build_observable_maps (verbatim port): observable node/edge maps for
         ``estimate_moments`` + alignment.  Same [edges (base_graph_edges), biases (output+hidden)]
-        ordering as exp15 ``build_maps`` / ``_obs_chunk`` (asserted in :meth:`_assert_maps_aligned`)."""
+        ordering as the reference ``build_maps`` / ``_obs_chunk`` (asserted in :meth:`_assert_maps_aligned`)."""
         g = step.model.graph
         node_map = g.node_mapping
         bias_nodes = list(g.output_nodes) + list(g.hidden_nodes)
@@ -130,18 +129,18 @@ class TrainabilityProbe:
 
     @staticmethod
     def _assert_maps_aligned(maps15, maps3):
-        """exp16 G-obs-align runtime assert: exp15 ``_obs_chunk`` positions == exp3 estimate_moments
+        """Reference G-obs-align runtime assert: the reference ``_obs_chunk`` positions == exp3 estimate_moments
         positions (so the cold-chain Sokal observables and the operational g share an ordering)."""
         ok = bool(maps15["n_edge"] == maps3["n_edge"] and maps15["n_bias"] == maps3["n_bias"]
                   and np.array_equal(maps15["edge_pos0"], maps3["edge_pos0"])
                   and np.array_equal(maps15["edge_pos1"], maps3["edge_pos1"])
                   and np.array_equal(maps15["bias_pos"], maps3["bias_pos"]))
-        assert ok, "observable maps (exp15 cold-chain vs exp3 positive-phase) are MISALIGNED"
+        assert ok, "observable maps (cold-chain vs positive-phase) are MISALIGNED"
 
     # ====================================================================== MANDATORY refresh guard
     @staticmethod
     def _refresh_and_assert(step):
-        """The exp15/16 stale-factors HARD-HALT.  Refresh the step's NEGATIVE program from the CURRENT
+        """The stale-factors HARD-HALT.  Refresh the step's NEGATIVE program from the CURRENT
         trained globals and assert the proof (``constructor_was_stale ∧ refresh_ok``).  Returns the
         refreshed negative program (caller samples through it) + the proof dict.  RAISES if the bug
         premise fails OR the refresh did not take."""
@@ -157,22 +156,22 @@ class TrainabilityProbe:
         proof = pp.refreshed_weight_proof(step)
         assert proof["constructor_was_stale"] is True, (
             "refresh guard VACUOUS: AnnealingIsingSamplingProgram constructor was NOT stale "
-            f"(stale_vs_trained_maxabs={proof.get('stale_vs_trained_maxabs')}) — the exp15/16 bug "
+            f"(stale_vs_trained_maxabs={proof.get('stale_vs_trained_maxabs')}) — the stale-factors bug "
             "premise does not hold; aborting the probe")
         assert proof["refresh_ok"] is True, (
             "trained-weight refresh did NOT take "
             f"(refreshed_vs_trained_maxabs={proof.get('refreshed_vs_trained_maxabs')}) — the probe "
-            "would sample INIT weights (the exp15/16 bug); aborting the probe")
+            "would sample INIT weights (the stale-factors bug); aborting the probe")
         return prog, proof
 
     # ====================================================================== negative-phase sampler
     def _negative_trajectory(self, step, prog_neg, maps15, data_neg, n_chains, K, B, stride, key):
         """Sample a retained negative-phase trajectory of FREE spins through the SINGLE-replica
         REVERSIBLE kernel (per-chain, ``order_key=None``).  Returns ``rec`` of shape
-        ``(n_chains, K, n_free)`` in {−1,+1}, aligned to the exp15 ``build_maps`` free ordering.
+        ``(n_chains, K, n_free)`` in {−1,+1}, aligned to the reference ``build_maps`` free ordering.
 
         The negative phase frees the 4 superblocks {upper_hidden, lower_hidden, image_output,
-        label_output} and clamps b_t (build-notes §"Training-negative free set").  ``data_neg`` is the
+        label_output} and clamps b_t (design notes §"Training-negative free set").  ``data_neg`` is the
         clamped-block tuple from ``step._make_training_data`` (= b_t)."""
         from thrml.block_sampling import SamplingSchedule, sample_with_observation
         from thrml.observers import StateObserver
@@ -200,7 +199,7 @@ class TrainabilityProbe:
 
     def _negative_window_means(self, rec, maps15):
         """Per-chain window-mean of f_a from a negative-phase rec (n_chains, K, n_free) → (n_chains, P)
-        ordered [edges, biases] (exp16 obs_means_from_rec, full window)."""
+        ordered [edges, biases] (reference obs_means_from_rec, full window)."""
         n_chains, K, _ = rec.shape
         P = maps15["n_edge"] + maps15["n_bias"]
         out = np.empty((n_chains, P), dtype=np.float64)
@@ -223,10 +222,10 @@ class TrainabilityProbe:
         node_spins = rec[:, :, maps15["bias_pos"]]            # (n_chains, K, n_bias)
         return node_spins.reshape(-1, node_spins.shape[-1]).mean(axis=0)
 
-    # ====================================================================== positive-phase (exp16)
+    # ====================================================================== positive-phase (reference)
     @staticmethod
     def _positive_window_means(step, key, prog_pos, data_pos, n_chains, maps3, K, warm):
-        """exp16 positive_moments: per-chain window moment of the POSITIVE (data-clamped) phase via
+        """Reference positive_moments: per-chain window moment of the POSITIVE (data-clamped) phase via
         plain ``estimate_moments`` Gibbs.  Returns (n_chains, P) ordered [edges, biases]."""
         from thrml.block_sampling import SamplingSchedule
         from thrml.models.ising import estimate_moments
@@ -260,7 +259,7 @@ class TrainabilityProbe:
             The diffusion step index (0..3).
         batch : dict
             ``{"image": (N, n_img) bool, "label": (N, n_lab) bool, "idx": int}`` — the single-input
-            clamp source (exp16 phase_data_1 pattern); ``idx`` selects the row.
+            clamp source (reference phase_data_1 pattern); ``idx`` selects the row.
         n_R : int
             Number of FIXED shared Rademacher sketches (worst-of-N_R reduction).
         L_traj : int
@@ -293,7 +292,7 @@ class TrainabilityProbe:
         # --- (1) MANDATORY per-layer trained-weight refresh + HARD-HALT proof (BEFORE any sampling) ---
         prog_neg, refresh_proof = self._refresh_and_assert(step)
 
-        # --- maps (exp15 cold-chain + exp3 positive-phase) + alignment ---
+        # --- maps (reference cold-chain + exp3 positive-phase) + alignment ---
         maps15 = pp.build_maps(step)
         maps3 = self.build_observable_maps(step)
         self._assert_maps_aligned(maps15, maps3)
@@ -355,7 +354,7 @@ class TrainabilityProbe:
         spin trajectory rec (n_chains, L_traj, n_free) → (n_chains, L_traj, P) ordered [edges, biases].
 
         This is the input ``pp.probe_scalars`` / the Rademacher sketches consume (τ_int,Y, T_O,Y on the
-        retained process).  Uses the verbatim exp15 ``_obs_chunk`` to build [edge products, node spins]
+        retained process).  Uses the verbatim reference ``_obs_chunk`` to build [edge products, node spins]
         without ever materializing the full f."""
         n_chains, L, _ = rec.shape
         P = maps15["n_edge"] + maps15["n_bias"]
@@ -382,22 +381,22 @@ class TrainabilityProbe:
     # ====================================================================== per-layer T_O calibration
     def calibrate(self, model, layer, batch, *, n_chains, L0, warm, n_rungs, diag_key, key=None,
                   B=None, stride=STRIDE_SWEEPS, sokal_c=pp.SOKAL_C):
-        """Per-layer T_O DOUBLING-STABILITY calibration (exp16 ``run_calibration`` semantics,
+        """Per-layer T_O DOUBLING-STABILITY calibration (reference ``run_calibration`` semantics,
         single-replica reversible kernel).  Doubles the trajectory length L over ``n_rungs`` rungs and
-        classifies the curve with the FAITHFUL exp15/exp16 Cal-STABLE criterion
+        classifies the curve with the FAITHFUL reference Cal-STABLE criterion
         (``pp.classify_calibration_stable``): a rung is STABLE iff ALL THREE axes hold
         (``rel_tau < TAU_TOL`` AND self-consistent ``L ≥ SOKAL_C·τ_max``; ``dT < STAB_TOL``;
         ``dS_l1 < STAB_TOL``), and the calibration is Cal-STABLE iff TWO CONSECUTIVE rungs are STABLE.
 
-        This is STRICTLY the exp16 gate — NOT a laxer single-rung / dS_l1-only test.  A chain whose
+        This is STRICTLY the reference gate — NOT a laxer single-rung / dS_l1-only test.  A chain whose
         aggregate T_O is still drifting (large ``dT``) but whose L1-normalized S_a *shape* momentarily
-        stabilizes on a single rung is correctly reported ``cal_stable=False`` (exp16 = UNRESOLVED).
+        stabilizes on a single rung is correctly reported ``cal_stable=False`` (reference = UNRESOLVED).
 
         Returns
         -------
         dict
             ``{tau_hat, T_O, cal_stable, curve, failed_axis}`` — the driver's Q-CALIBRATION-FAIL gate
-            reads ``cal_stable`` (build-notes: the T_O bias is systematic; the gate is binary).
+            reads ``cal_stable`` (design notes: the T_O bias is systematic; the gate is binary).
         """
         dtm = _resolve_dtm(model)
         step = dtm.steps[int(layer)]
@@ -435,8 +434,8 @@ class TrainabilityProbe:
             w = max(w, int(round(5 * tau_max)))
             L *= 2
 
-        # --- classify with the faithful exp16 three-axis / 2-consecutive criterion (frozen thresholds:
-        #     pp.TAU_TOL / pp.STAB_TOL / pp.SOKAL_C — the SAME constants exp16 uses) ---
+        # --- classify with the faithful reference three-axis / 2-consecutive criterion (frozen thresholds:
+        #     pp.TAU_TOL / pp.STAB_TOL / pp.SOKAL_C — the SAME constants the reference uses) ---
         cal_stable, annotated, failed_axis = pp.classify_calibration_stable(curve)
         return dict(tau_hat=tau_star, T_O=TO_star, cal_stable=bool(cal_stable),
                     curve=annotated, failed_axis=failed_axis)

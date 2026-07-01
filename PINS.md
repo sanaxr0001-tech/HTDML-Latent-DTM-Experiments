@@ -10,7 +10,6 @@ This file records the pinned inputs for the `htdml-latent-dtm` companion study.
 | Source | Pin | Notes |
 |--------|-----|-------|
 | dtm-replication | @ 7c22d19 | Vendored clean at `vendor/dtm-replication/`; `figures/` excluded. DTM.py sha256 `e7d48e2304e7667c55a0862a1155e08ef340b7869fc1814f4b0b7ef27913f472` (proves vendored clean, not dirty worktree). |
-| wiki (internal-project) | @ 4ef4063 | Harness COPY-source only, not vendored. Used as reference for exp15/exp19 harness patterns. |
 | thrml | == 0.1.3 | Overlay copy at `vendor/thrml_overlay/thrml/`; the reversible-scan patch is applied in Task 2. Site-packages thrml 0.1.3 is shadowed by the overlay at runtime via `src/htdml/paths.py`. |
 
 ---
@@ -25,11 +24,11 @@ This file records the pinned inputs for the `htdml-latent-dtm` companion study.
 
 ## Verified config constants
 
-Copied verbatim from `.superpowers/sdd/build-notes.md`. Companion divergences from upstream are flagged.
+Companion divergences from the upstream DTM replication are flagged.
 
 | param | value | source / note |
 |---|---|---|
-| graph_preset_architecture | **44_12** | **COMPANION DIVERGENCE** (upstream 60_12). 1936 nodes, side 44; valid (embeds 196+labels). Not minimal (20_8/42_8 smaller) but FROZEN; comfortable on the 8GB 4060 (< wiki's 60_12). |
+| graph_preset_architecture | **44_12** | **COMPANION DIVERGENCE** (upstream 60_12). 1936 nodes, side 44; valid (embeds 196+labels). Not minimal (20_8/42_8 smaller) but FROZEN; comfortable on an 8 GB GPU (< the reference 60_12). |
 | base_graph_manager | poisson_binomial_ising_graph_manager | upstream; MUST assert (convolved breaks marginalization) |
 | num_label_spots | 5 | upstream training_script.py:32 |
 | grayscale_levels | 1 | upstream (identity pixel converter) |
@@ -74,6 +73,6 @@ These values are NOT invented; they are frozen at their respective calibration g
 | InceptionV3-FID-weights sha256 | `4e030efa5bccac3222d975f658d1884f9e00fab24f2812082884539220b90d77` |
 | L_traj | 400 (frozen Task-12 from MEASUREMENT: L_traj=400 ≥ C·τ̂=6.9 (trajectory adequacy gate (i)) AND > K=50 (ρ_Y(50) defined) AND ≥ 1/se²=400 (white-noise autocorr SE ≤ 0.05); rounded up to a multiple of K) |
 | N_chains | 4 (frozen Task-12 from MEASUREMENT: N_chains=4: n_chains·L_traj=1600 ≥ 1/se²=400 (projection SE ≈ 1/√(n_chains·L_traj) ≤ 0.05); floored at 4 for a non-degenerate chain-axis vmap) |
-| N_R | 16 (frozen Task-12: N_R=16: fixed Rademacher screen count (wiki/exp16 target ≈16)) |
+| N_R | 16 (frozen Task-12: N_R=16: fixed Rademacher screen count ≈16) |
 | C | 5.0 (frozen Task-12: C=5.0: trajectory-adequacy factor = the half-Sokal self-consistency constant (pp.SOKAL_C); MEASUREMENT confirms L_traj ≥ C·τ̂) |
 | ESS_min | 10.0 (a-priori RULE, NOT measured: a-priori: ESS_min = ESS_FLOOR = 10 effective samples (min for SE≈1/√ESS acceptable AND τ̂ trustworthy, Sokal); ⟺ τ_int,Y ≤ K/(2·ESS_min) = 2.5.  Fixed before any joint/control comparison; NOT a calibration output.) |

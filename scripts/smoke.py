@@ -7,7 +7,7 @@ FIRST failing stage (the smoke is also the first real integration test — surfa
     (TrainabilityProbe.evaluate: per-step refresh HARD-HALT + the 4 layers) → generate → decode → FID
     (on the DECODED 28×28, INCLUDING the no-network ``assert_fid_offline`` assertion).
 
-HARD constraints (researcher-conferred, build-notes §"TASK-12 SCOPE"):
+HARD constraints (pre-registered, see design notes):
   * 1hr wall-time cap on the 4060 (``--cap-seconds``, default 3600) — a BUDGET-WALL stop is not a
     failure; the script reports what completed.
   * NO Stage-C joint/control, NO two-seed, NO outcome token, NO H200.  Plumbing + calibration only.

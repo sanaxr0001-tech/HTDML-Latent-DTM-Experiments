@@ -2,4 +2,4 @@
 
 Outcome: **HTDML-MARGIN-NEGATIVE**
 
-Written after run_stage_c.json. MEASURE-ONLY — no wiki tag move.
+Written after run_stage_c.json. MEASURE-ONLY — companion-local token only.

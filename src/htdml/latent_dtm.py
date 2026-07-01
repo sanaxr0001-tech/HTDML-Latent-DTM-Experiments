@@ -1,7 +1,7 @@
 """LatentDTM — Task 7 wrapper around the vendored DTM for the 196-bit latent companion.
 
 This wraps the vendored ``thrmlDenoising.DTM`` with the FROZEN 44_12 companion config
-(see PINS.md / build-notes.md §"Verified config constants") and provides two operations:
+(see PINS.md / the design notes §"Verified config constants") and provides two operations:
 
   * ``.fit(latent_dataset)`` — inject the Task-6 latent-adapter dict (bypassing
     ``load_dataset``) and run ``dtm.train``.  **``dtm.train`` HARD-REQUIRES a GPU**, so
@@ -19,7 +19,7 @@ This wraps the vendored ``thrmlDenoising.DTM`` with the FROZEN 44_12 companion c
 
 The reversible ½(P_AB+P_BA) kernel must be LIVE for training (assert
 ``harness.reversible_scan.is_patch_live()``).  The per-step trained-weight refresh
-(``harness.probe_primitives.refresh_program_weights`` / the exp15/16 stale-factors bug fix)
+(``harness.probe_primitives.refresh_program_weights`` / the stale-factors bug fix)
 is a Task-8 probe concern and is NOT applied here; ``.generate`` reads the generation
 program's own ``per_block_interactions`` (which are refreshed by ``dtm.train``'s write-back,
 and by the CPU perturbation helper in the tests).
@@ -49,7 +49,7 @@ import numpy as np  # noqa: E402
 
 
 # ============================================================================== companion config
-# Frozen companion config (PINS.md / build-notes.md §"Verified config constants").
+# Frozen companion config (PINS.md / the design notes §"Verified config constants").
 # Companion divergences from upstream are flagged in PINS.md.
 COMPANION_CFG = dict(
     graph=dict(
@@ -123,7 +123,7 @@ class LatentDTM:
         sampled 196-bit latents back to pixel space.  May be ``None`` if only ``.fit`` is used.
     assert_kernel_live:
         If ``True`` (default), ``.fit`` asserts the reversible kernel patch is LIVE before
-        training (build-notes §"Reversible kernel").
+        training (design notes §"Reversible kernel").
     """
 
     def __init__(self, dtm, decode_fn=None, *, assert_kernel_live: bool = True):
@@ -150,7 +150,7 @@ class LatentDTM:
         """Inject the Task-6 latent-adapter triple, bypassing ``load_dataset`` (seam A).
 
         ``latent_dataset`` is ``(train_ds, test_ds, one_hot_target_labels)`` from
-        ``latent_adapter.build_latent_dataset`` (build-notes §"Fork Seam A").  Sets the DTM's
+        ``latent_adapter.build_latent_dataset`` (design notes §"Fork Seam A").  Sets the DTM's
         dataset attributes + the derived ``n_image_pixels``/``n_label_nodes`` so the test-dict
         assertions (DTM.py:675-680, step.py:393) and ACP autocorr path are satisfied.
         """
@@ -169,7 +169,7 @@ class LatentDTM:
     def fit(self, latent_dataset, *, n_epochs: int, evaluate_every: int):
         """Inject the latent dict and run ``dtm.train`` (GPU-only).
 
-        WARNING: ``dtm.train`` HARD-REQUIRES a GPU (build-notes §"CPU vs GPU").  This method is
+        WARNING: ``dtm.train`` HARD-REQUIRES a GPU (design notes §"CPU vs GPU").  This method is
         wired here and exercised at the smoke (Task 11) — it is NEVER called in the CPU unit
         tests.  ``.fit`` asserts the reversible kernel is LIVE before training so the negative
         phase uses the ½(P_AB+P_BA) kernel.

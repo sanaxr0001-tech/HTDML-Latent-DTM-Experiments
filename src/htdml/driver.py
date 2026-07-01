@@ -26,11 +26,11 @@ The acceptance constants (ESS_min, C, L_traj, N_chains, N_R, the gain/drop thres
 are FROZEN at the Task-12 local calibration into PINS; here they are an :class:`AcceptanceConstants`
 the router/gate take as a PARAMETER so the logic is testable with synthetic values.
 
-Observable ordering (build-notes / Task-8): the probe returns node means in ``bias_pos`` order — the
+Observable ordering (design notes / Task-8): the probe returns node means in ``bias_pos`` order — the
 driver consumes the probe's per-layer dicts AS-IS (it never re-orders), so the gates read exactly the
 scalars the probe produced.
 
-Generation-program refresh (build-notes / Task-7): ``DTM.load`` rebuilds BOTH the negative AND the
+Generation-program refresh (design notes / Task-7): ``DTM.load`` rebuilds BOTH the negative AND the
 generation programs (``_rebuild_step_interactions``), so a fork via save→load is already generation-
 refreshed.  For an in-place weight edit that does NOT go through DTM.load the driver calls
 :func:`refresh_all_programs` (negative + generation) before any ``.generate`` / FID.
@@ -64,7 +64,7 @@ import htdml.compatibility as C  # noqa: E402
 
 
 # ====================================================================== the 6-token vocab (companion)
-# build-notes §"6-token outcome vocab".  Companion-local; NEVER a wiki tag.
+# Design notes §"6-token outcome vocab".  Companion-local; NEVER an external claim-status tag.
 TOKENS = (
     "BUDGET-WALL",
     "Q-CALIBRATION-FAIL",
@@ -84,7 +84,7 @@ _INVALID_PRECEDENCE = ("BUDGET-WALL", "Q-CALIBRATION-FAIL", "PLATEAU-UNRESOLVED"
 class AcceptanceConstants:
     """Frozen acceptance constants — the gate/router bars.  At runtime these are read from PINS (Task-12
     calibration); the router/gate take them as a PARAMETER so the logic is unit-testable with synthetic
-    values.  The T_O/Q bias (build-notes §"Half-Sokal T_O bias") is systematic → the RELATIVE bars
+    values.  The T_O/Q bias (design notes §"Half-Sokal T_O bias") is systematic → the RELATIVE bars
     (Q_GAIN, TAU_DROP, Q_DROP_MAX) cancel it; the ABSOLUTE bars (ESS_min, C) are frozen at calibration
     using the SAME biased estimator → self-consistent."""
 
@@ -133,7 +133,7 @@ class EpochLayerRecord:
     epoch × reverse layer).  Holds every stored scalar:
 
       reconstruction BCE, FID, the LIVE ACP coefficient (``correlation_penalty`` read POST-``adapt_param``
-      — build-notes §config: ``adapt_param`` utils.py:142-149, re-floored to cp_min each adaptive epoch),
+      — design notes §config: ``adapt_param`` utils.py:142-149, re-floored to cp_min each adaptive epoch),
       gradient norm, r_grad[1], r_grad[50], τ_int,Y, ESS_hat, trace-Q_struct^⊥.
 
     ``correlation_penalty`` was MISSING from every driver record (the zero-compute battery xfail-marked
@@ -248,7 +248,7 @@ def _r_grad50_ok(m: SeedMetrics, acc: AcceptanceConstants) -> bool:
 
 # ====================================================================== the per-seed router (PURE)
 def route_seed(m: SeedMetrics, acc: AcceptanceConstants) -> str:
-    """6 disjoint priority-ordered tokens for ONE seed (build-notes §"Outcome router").  PURE.
+    """6 disjoint priority-ordered tokens for ONE seed (design notes §"Outcome router").  PURE.
 
     Priority (first match wins):
       1. BUDGET-WALL            — GPU-h allocation exceeded (checked FIRST, stop).
@@ -408,7 +408,7 @@ def apply_acceptance(st: RejectState) -> RejectState:
 # ====================================================================== λ-multiply + scoped-x64 compat
 @contextlib.contextmanager
 def _x64():
-    """Scoped JAX float64 — REQUIRED ONLY around the compat loss/grad (build-notes §"Compat-core
+    """Scoped JAX float64 — REQUIRED ONLY around the compat loss/grad (design notes §"Compat-core
     hand-off": a GLOBAL x64 flip breaks the float32 DTM.save/load round-trip).  Restores the prior flag
     on exit so the rest of the driver (and DTM.load) is unaffected."""
     prev = jax.config.jax_enable_x64
@@ -438,7 +438,7 @@ def build_compat_maps_x64(step):
 
 
 def refreshed_compat_maps_x64(step):
-    """Refresh-gated compat maps (the exp15/16 stale-factors guard) inside the scoped x64 toggle.
+    """Refresh-gated compat maps (the stale-factors guard) inside the scoped x64 toggle.
     Returns (maps, proof)."""
     with _x64():
         return C.refreshed_compat_maps(step)
@@ -474,7 +474,7 @@ def compat_value_and_grad_x64(lam, clamp_spins_per_step, step_maps, beta, **mf_k
 # ====================================================================== generation-program refresh
 def refresh_all_programs(step):
     """Refresh BOTH the negative AND the generation programs from the CURRENT trained globals after an
-    in-place weight edit (build-notes §"GENERATION-program refresh gap").  A fork via DTM.save→load is
+    in-place weight edit (design notes §"GENERATION-program refresh gap").  A fork via DTM.save→load is
     ALREADY generation-refreshed (DTM.load calls ``_rebuild_step_interactions`` over training + gen);
     this is for an ad-hoc ``eqx.tree_at`` weight edit that bypasses DTM.load.
 
@@ -644,7 +644,7 @@ def verify_manifest(manifest: dict, *, expect_seed: int, expect_raw_sha: str,
 def fork_checkpoint(dtm, workdir: str, *, epoch: int = 0) -> Tuple[object, object]:
     """Fork a Stage-B checkpoint into a matched control arm + a joint arm.
 
-    Mechanism (build-notes §"DTM.load drops autocorrelations" + Task-4 (e)):
+    Mechanism (design notes §"DTM.load drops autocorrelations" + Task-4 (e)):
       1. capture the parent's unsaved static (key + per-step autocorrelations);
       2. ``DTM.save_epoch`` ONCE (eqx-partitions weights/biases/opt_state + serialises);
       3. ``DTM.load`` TWICE (control + joint) — each load builds a FRESH DTM, rebuilds BOTH the training
@@ -798,7 +798,7 @@ def compat_steering_loss(ae_params, x_batch, label_clamp, bt_clamp, step_maps, b
 
     with _x64():
         b0, _logits = encode_fn(ae_params, x_batch)        # (B, n_img) hard latent {−1,+1}, STE-grad
-        # one representative latent row drives the single-input compat clamp (exp16 phase_data_1 pattern):
+        # one representative latent row drives the single-input compat clamp (reference phase_data_1 pattern):
         # the compat clamp is a single conditioned input; use the batch-mean latent so the gradient
         # reaches every encoded example (a faithful single-clamp surrogate; the smoke may select a row).
         b0_row = jnp.mean(jnp.asarray(b0), axis=0)          # (n_img,) — carries ∂/∂ae_params via the STE

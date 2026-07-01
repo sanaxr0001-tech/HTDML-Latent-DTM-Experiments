@@ -2,9 +2,9 @@
 
 **RAN on H200 2026-06-27.** Resume sweep over `λ ∈ {0.5, 0.3, 0.1}` on exp2's persisted Stage-B
 checkpoints (`RESUME_FROM`, Stage A+B skipped), code `19cd46f`, `MODE=full SEEDS=1,2`; all three runs
-finished clean, **no budget wall**. Sweep total **5.67 GPU-h** (2.181 + 2.200 + 1.287) of the conferred
+finished clean, **no budget wall**. Sweep total **5.67 GPU-h** (2.181 + 2.200 + 1.287) of the
 9.0 backstop. Plotted against exp2's `λ=1.0` anchor (code `a26dbce`). **MEASURE-ONLY — companion-local
-tokens, no wiki tag.** Raw: `artifacts/lam{0.5,0.3,0.1}/run_stage_c.json` + `.run.log`.
+tokens only.** Raw: `artifacts/lam{0.5,0.3,0.1}/run_stage_c.json` + `.run.log`.
 
 > **Interpretation note (publication-grade adversarial verification, 2026-06-27).** An earlier draft of
 > this report read the per-seed gate passes as a "reproducible τ-route mixing improvement." A 4-lens
@@ -17,7 +17,7 @@ tokens, no wiki tag.** Raw: `artifacts/lam{0.5,0.3,0.1}/run_stage_c.json` + `.ru
 
 ## Headline
 
-Pre-registered question (`pre-commitment.md`): **does any λ yield a robust (both-seed) margin
+Pre-registered question: **does any λ yield a robust (both-seed) margin
 clearance — improvement *and* ESS-non-degradation — where λ=1.0 (exp2) did not?**
 
 **Answer: no.** Run-level **`HTDML-MARGIN-NEGATIVE` at every λ** (`two_seed.both_pass=False` for all four).
@@ -34,7 +34,7 @@ result is **unidentified, not proven-zero** — the current ruler cannot adjudic
 
 ## The measured verdict — per-λ × per-seed × 7-criterion gate
 
-Gate (inherited verbatim from `../../pre-commitment.md`, registered a-priori): a seed PASSES iff all 7
+Gate (registered a-priori): a seed PASSES iff all 7
 hold — quality (BCE ≤ control+5%, FID ≤ control+10%), trajectory resolved (`L_traj ≥ C·τ̂`, all
 `cal_stable`), ESS adequate (worst ESS ≥ 10), plateau (`|r_grad[50]| ≤ 0.05`), **improvement**
 (lower-quartile joint `Q_struct^⊥` ≥ **1.25×** control **OR** worst-layer `τ_int,Y` ≤ **0.75×** control),
@@ -117,7 +117,7 @@ plausibly noise-dominated** — the estimator variance is not yet formally quant
 the n=3 shared-code runs the λ=0 control's `max₄ τ` varies **~2.5× (seed-1), ~1.45× (seed-2)** at fixed
 seed, and the steered numerator also varies ~1.5× — it is a *noisy ratio of two short-chain max-of-4
 estimators*, not merely a noisy denominator. The relative-ruler discipline
-(`../../pre-commitment.md §Half-Sokal T_O bias`) cancels the multiplicative *bias* of the half-Sokal
+(the half-Sokal T_O bias-cancellation argument) cancels the multiplicative *bias* of the half-Sokal
 estimator (a common factor in a joint/control ratio — exact only if both arms share the same bias,
 approximately true in the same short-`L` regime) — but a constant bias cancels in a ratio while
 **estimator variance does not**, and a *max over 4 short-chain estimates* is variance-amplifying.
@@ -130,7 +130,7 @@ the worst-τ run-to-run variance — and, **two-sided**, to test whether the ste
 
 ---
 
-## Prediction vs outcome (vs `pre-commitment.md`)
+## Prediction vs outcome (vs the pre-registration)
 
 - **Pre-registered modal prediction:** channel-negative ("no λ clears the margin"). → **CONFIRMED** — no
   robust positive, and no demonstrable per-seed effect either: the apparent passes are not distinguishable
@@ -155,7 +155,7 @@ the worst-τ run-to-run variance — and, **two-sided**, to test whether the ste
 | Resume caveat | checkpoints trained under the **pre-fix** cal-gate (`a26dbce`); Stage-C **recomputes** `calibrate_tau` under the fixed gate (manifest `cal_gate_note`). All layers `cal_stable=True` at trained τ̂ (seed-1 worst 2.42, seed-2 worst 3.67); `L_traj=400 ≥ C·τ̂` |
 | Dataset / FID | Fashion-MNIST split sha256 `9e7e9929…` · InceptionV3-FID pickle sha256 `4e030efa…` (offline, PINS-verified) |
 | Config | `44_12` DTM, 4 reverse steps, ACP; frozen-five `L_traj=400, N_chains=4, N_R=16, C=5.0, ESS_min=10.0`; probe `K=50, B=400, s=8` |
-| Budget | λ=0.5 **2.181**, λ=0.3 **2.200**, λ=0.1 **1.287** GPU-h, all `budget_wall=False`. λ=0.1 launched at `BUDGET_H=4.0` (pre-result amendment, `p0_decision.md §Pre-result amendment`) but finished at **1.29 GPU-h → clean under the original 3.0 cap** (4.0 backstop unused) |
+| Budget | λ=0.5 **2.181**, λ=0.3 **2.200**, λ=0.1 **1.287** GPU-h, all `budget_wall=False`. λ=0.1 launched at `BUDGET_H=4.0` (pre-result amendment) but finished at **1.29 GPU-h → clean under the original 3.0 cap** (4.0 backstop unused) |
 | Pre-flight (on-box) | dataset sha ✓ · zero-compute battery 43/43 ✓ · reversible cert 10/10 ✓ · `LAMBDA_JOINT` knob test 8/8 ✓ |
 | Verification | 4-lens adversarial pass (numbers / provenance / claims / scope), all numbers + provenance reproduced from raw JSONs; the claims+scope lenses drove this report's corrected interpretation |
 
@@ -183,12 +183,12 @@ the worst-τ run-to-run variance — and, **two-sided**, to test whether the ste
   mean-field compatibility surrogate**, 200-epoch Stage-B; λ=1.0 anchor is a different code version.
 - **Two resume bugs** (`RESUME_FROM` path, `np` import) were found on the first GPU exercise and fixed +
   locally validated before the reported runs — disclosed for reproducibility.
-- **MEASURE-ONLY:** companion-local tokens; **not** operational validation of the wiki theorem; **no
-  hardware-energy claim**; no wiki tag move. Terminal verdict is **researcher-conferred**.
+- **MEASURE-ONLY:** companion-local tokens; **not** operational validation of the broader theorem; **no
+  hardware-energy claim.** Terminal verdict pending separate review.
 
 ---
 
-## Next (separate, conferred)
+## Next (separate)
 
 The result does not motivate an immediate follow-up *effect* experiment; it motivates a **measurement-
 reliability** step first. Before any steering-effect claim: (1) quantify the λ=0 control worst-τ

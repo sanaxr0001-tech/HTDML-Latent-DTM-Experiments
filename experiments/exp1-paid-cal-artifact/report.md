@@ -1,7 +1,7 @@
 # htdml-latent-dtm — paid H200 Stage-C run REPORT (2026-06-26)
 
 **Outcome: `Q-CALIBRATION-FAIL` (both seeds) — a calibration-GATE artifact, NOT bad mixing.**
-MEASURE-ONLY: no wiki edit, no tag move.
+MEASURE-ONLY: local outcome record only.
 
 ## Provenance / config
 - git_sha `57eac01`, jax backend `gpu`, reversible patch live (`is_patch_live=true`).
@@ -31,11 +31,11 @@ MEASURE-ONLY: no wiki edit, no tag move.
   blocked at the measurement gate, before the novel mechanism was exercised.
 
 ## Relation to prior work
-- Mirrors the wiki's **exp13** finding ("T_O calibratable; S-ADQ was a gate-spec artifact, windows fine"):
-  the cal-stability gate spec can reject an adequate, well-mixing model. (Reference only — no tag move.)
+- Mirrors a related internal experiment's finding ("T_O calibratable; S-ADQ was a gate-spec artifact, windows fine"):
+  the cal-stability gate spec can reject an adequate, well-mixing model. (Reference only.)
 
 ## Recommended next step (researcher decision — NOT auto-applied)
-The model is healthy; the **gate** is the blocker. Candidate fixes (pick at conferral):
+The model is healthy; the **gate** is the blocker. Candidate fixes (pick during review):
 1. **Make cal_stable regime-aware:** accept when `L_traj ≥ C·τ̂` is comfortably satisfied (it is, 16×)
    instead of additionally requiring doubling-stability that noise-fails at τ̂≈2.
 2. **Widen the doubling tolerance / use a more robust small-τ̂ T_O estimator.**

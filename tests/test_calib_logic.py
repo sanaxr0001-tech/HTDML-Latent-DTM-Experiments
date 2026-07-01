@@ -2,7 +2,7 @@
 
 These verify the wall-time budget guard, the freeze-from-measurement rules
 (L_traj / N_chains / N_R / C), and the a-priori ESS_min RULE — WITHOUT any dtm.train / GPU
-(build-notes §"CPU vs GPU").  Run before the 4060 GPU pass.
+(the CPU vs GPU split).  Run before the 4060 GPU pass.
 """
 
 from __future__ import annotations

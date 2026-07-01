@@ -56,7 +56,7 @@ def symmetric_kl_grad(
         Tuple of (weight_gradients, bias_gradients), each as JAX arrays matching model shapes.
     """
 
-    # EXP4 v2: shared order-coin for TRAINING (key_order_* are closure constants in the vmaps below,
+    # HTDML v2: shared order-coin for TRAINING (key_order_* are closure constants in the vmaps below,
     # hence non-batched across chains => lax.cond stays true control flow => ~1 sweep). Fresh per step.
     key_pos, key_neg, key_order_pos, key_order_neg = jax.random.split(key, 4)
 

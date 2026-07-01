@@ -2,7 +2,7 @@
 
 Two parts under test:
 
-  PART A — VERBATIM-faithful ports of the exp15 / exp15-recheck / exp19 sokal / energy / refresh
+  PART A — VERBATIM-faithful ports of the internal reference sokal / energy / refresh
   primitives (the math is already validated upstream; these tests pin the math, not re-derive it):
     * half-Sokal τ_int floor (τ=0.5 on a constant / IID series),
     * the three-term `energy_free` conditional (the coupling-to-clamped-input term is LOAD-BEARING),
@@ -108,7 +108,7 @@ def test_refreshed_weight_proof_on_tiny_dtm():
     assert set(["refresh_ok", "constructor_was_stale", "refreshed_vs_trained_maxabs"]).issubset(proof)
     assert proof["constructor_was_stale"] is True, (
         f"constructor was NOT stale (stale_vs_trained_maxabs="
-        f"{proof['stale_vs_trained_maxabs']}) — the exp15/16 bug premise does not hold here")
+        f"{proof['stale_vs_trained_maxabs']}) — the stale-factors bug premise does not hold here")
     assert proof["refresh_ok"] is True, (
         f"refresh did NOT take (refreshed_vs_trained_maxabs="
         f"{proof['refreshed_vs_trained_maxabs']}) — the mandatory weight refresh is broken")
@@ -261,7 +261,7 @@ def _perturb(step, scale=0.5, seed=123):
     """Perturb step.model.weights/biases EXACTLY as DTM.train's write-back does — tree_at updates
     weights/biases + the program per_block_interactions but DELIBERATELY leaves model.factors stale
     (DTM.py:337-340 omits model.factors). This is a faithful, GPU-free reproduction of the trained
-    state that triggers the exp15/16 stale-factors bug."""
+    state that triggers the stale-factors bug."""
     import equinox as eqx
     import jax.random as jr
 

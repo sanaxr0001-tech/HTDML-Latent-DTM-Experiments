@@ -1,11 +1,11 @@
 """scripts/calibrate_epoch_cost.py — Task-12 calibration: measure epoch cost + trajectory adequacy
 on the local RTX 4060, then FREEZE L_traj / N_chains / N_R / C from MEASUREMENT and set ESS_min by
-the a-priori rule, writing PINS.md + pre-commitment.md.
+the a-priori rule, writing PINS.md + the pre-registration record.
 
-Researcher-conferred scope (build-notes §"TASK-12 SCOPE"):
+Pre-registered scope (see design notes):
   * Freeze L_traj / N_chains / N_R / C FROM MEASUREMENT (runtime/adequacy):
-      - measure the per-epoch wall cost (for the later H200 budget estimate in p0_decision);
-      - run the probe's T_O doubling-stability calibration (the exp16-faithful
+      - measure the per-epoch wall cost (for the later H200 budget estimate);
+      - run the probe's T_O doubling-stability calibration (the reference-faithful
         ``classify_calibration_stable``) on the smoke DTM to MEASURE τ̂;
       - freeze L_traj (≫ τ̂; white-noise autocorr SE ≪ 0.05), N_chains, N_R (≈16), C (L_traj ≥ C·τ̂).
   * ESS_min is NOT a calibration output — set by the a-priori RULE (``calib_logic.ess_min_rule``),
@@ -80,7 +80,7 @@ def build_and_train(*, epochs, n_train, ae_steps, seed, wc):
 
 def measure_tau_hat(ldtm, latent_ds, *, wc, n_chains, L0, warm, n_rungs, diag_key=20240624):
     """Run the per-layer T_O doubling-stability calibration on EVERY layer; return the WORST-layer
-    (max) measured τ̂ + the per-layer calibration records.  exp16-faithful classify_calibration_stable."""
+    (max) measured τ̂ + the per-layer calibration records.  reference-faithful classify_calibration_stable."""
     _banner("CALIBRATE — probe T_O doubling-stability (MEASURE τ̂ per layer)")
     from htdml.trainability_probe import TrainabilityProbe
     train_ds, _test_ds, _ohtl = latent_ds
@@ -190,7 +190,7 @@ def write_pins(frozen, ess):
 
 
 def write_precommitment(frozen, ess, per_layer, per_epoch_s, *, run_args):
-    """Write pre-commitment.md recording the frozen constants + the ESS_min RULE + the justifying
+    """Write the pre-registration record capturing the frozen constants + the ESS_min RULE + the justifying
     measurements (so the freeze is reproducible; Task 13 finalizes the full pre-commitment)."""
     layers_md = "\n".join(
         f"  - layer {p['layer']}: τ̂={p['tau_hat']:.3f}, T_O={p['T_O']:.3g}, "
@@ -201,7 +201,7 @@ def write_precommitment(frozen, ess, per_layer, per_epoch_s, *, run_args):
 > **Task 13 finalizes the full pre-commitment** (predictions + the full go/no-go criteria); this file
 > currently holds ONLY the Task-12-frozen acceptance constants + the a-priori ESS_min RULE.
 >
-> Researcher-conferred Task-12 scope (build-notes §"TASK-12 SCOPE"): NO Stage-C joint/control, NO
+> Task-12 scope: NO Stage-C joint/control, NO
 > two-seed, NO outcome token, NO H200; 1hr local-4060 cap; freeze L_traj/N_chains/N_R/C from
 > MEASUREMENT; ESS_min by an a-priori RULE fixed BEFORE any joint/control comparison.
 
@@ -217,11 +217,11 @@ def write_precommitment(frozen, ess, per_layer, per_epoch_s, *, run_args):
 Measured worst-layer half-Sokal τ̂ = {frozen['tau_hat']:.3f}
 ({frozen['justification']['tau_hat']}).
 
-Per-layer T_O doubling-stability calibration (exp16-faithful `classify_calibration_stable`):
+Per-layer T_O doubling-stability calibration (`classify_calibration_stable`):
 {layers_md}
 
 Measured per-epoch fit cost on the 4060: {per_epoch_s:.2f} s/epoch
-(used for the later H200 budget estimate in p0_decision).
+(used for the later H200 budget estimate).
 
 Calibration run config: {run_args}
 
@@ -235,7 +235,7 @@ ESS_min is a SCIENTIFIC ACCEPTANCE threshold, fixed BEFORE any joint/control com
 joint/control arm in Task 12).  It is NOT reverse-engineered from any smoke / joint / control result.
 The window-adequacy gate is `worst-layer ESS_hat ≥ ESS_min` with `ESS_hat = K/(2·τ_int,Y)`, K=50.
 
-## Bias caveat (build-notes §"Half-Sokal T_O bias")
+## Bias caveat (half-Sokal T_O bias)
 
 The half-Sokal τ̂/T_O is systematically ~0.86× the exact value.  The ABSOLUTE bars (ESS_min, C) are
 frozen against the SAME biased estimator → self-consistent; the companion only ever uses τ̂/Q as a

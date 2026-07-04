@@ -1,4 +1,4 @@
-# Joint-training a latent discrete-diffusion EBM, made mixing-aware — an honest null
+# HTDML-LATENT-DTM
 
 <p align="center">
   <img src="assets/figures/cover.png" alt="HTDML Latent-DTM — guarded joint encoder → binary-latent-DTM → decoder, with the Q ruler, reject gate, and 6-token router as the measurement guard rail" width="100%">

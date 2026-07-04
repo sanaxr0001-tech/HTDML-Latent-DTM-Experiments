@@ -11,7 +11,7 @@
   <img alt="result: honest null" src="https://img.shields.io/badge/result-honest%20null-lightgrey">
 </p>
 
-> *The DTM paper flagged joint encoder→DTM→decoder training as an open problem. We built a guarded, mixing-aware version, put a measurement ruler on the sampler, and report exactly what it did — and didn't — buy. Spoiler: quality held; the mixing margin never improved (and at full strength it degraded); the durable result is about measurement, not acceleration.*
+> *The DTM paper flagged joint encoder→DTM→decoder training as an open problem. I built a guarded, mixing-aware version, put a measurement ruler on the sampler, and report exactly what it did — and didn't — buy. Spoiler: quality held; the mixing margin never improved (and at full strength it degraded); the durable result is about measurement, not acceleration.*
 
 ---
 
@@ -21,10 +21,10 @@
 - [2 · Stage A — a hard binary code](#2--stage-a--a-hard-binary-code)
 - [3 · Stage B — the 4-layer reverse EBM](#3--stage-b--the-4-layer-reverse-ebm)
 - [4 · Stage C — the guarded joint step](#4--stage-c--the-guarded-joint-step)
-- [5 · The Q ruler](#5--the-q-ruler-a-guard-never-theorem-validation)
+- [5 · The Q ruler](#5--the-q-ruler-a-guard-not-a-proof)
 - [6 · The reject gate + the 6-token router](#6--the-reject-gate--the-6-token-router)
 - [7 · The Frozen-Five](#7--the-frozen-five-pinned-sha256-guarded)
-- [8 · What we actually found](#8--what-we-actually-found-the-honest-part)
+- [8 · What I actually found](#8--what-i-actually-found-the-honest-part)
 - [9 · Reproducibility & links](#9--reproducibility--links)
 - Appendix: [Repository layout](#repository-layout) · [6-token vocabulary](#the-6-token-outcome-vocabulary) · [Running it](#running-it) · [Citation](#citation)
 
@@ -76,7 +76,7 @@ The steering signal is a frozen-DTM free-energy surrogate per reverse step (hidd
 
 The "guard" is what is held under stop-gradient — the encoder can never cheat by editing the DTM or backprop-ing through sampling.
 
-## 5 · The Q ruler (a guard, never theorem validation)
+## 5 · The Q ruler (a guard, not a proof)
 
 To ask whether steering preserves the finite-budget mixing margin, each arm is measured per layer with a mixing ruler. The operational quantity is a gradient signal-to-noise ratio; the computable ruler used in practice replaces the estimator MSE with a mixing-time denominator:
 
@@ -86,7 +86,7 @@ To ask whether steering preserves the finite-budget mixing margin, each arm is m
 
 That mixing-time denominator is a half-Sokal estimator on the retained Y-process, screened by 16 fixed Rademacher sketches (worst-of — the least-mixed direction).
 
-Crucially, Q is used **only as a relative ruler** (joint ÷ control); the systematic half-Sokal bias cancels in the ratio. It is never used to validate the wiki's frozen Q_op ≈ Q_struct^⊥ theorem.
+Crucially, Q is used **only as a relative ruler** (joint ÷ control); the systematic half-Sokal bias cancels in the ratio. It is never used to validate the wiki's frozen Q_op ≈ Q_struct^⊥ relation.
 
 ## 6 · The reject gate + the 6-token router
 
@@ -108,7 +108,7 @@ The first three tokens are invalid (no verdict); the last three are valid readin
 
 C = 5.0 is the trajectory-adequacy factor (L ≥ C·τ̂); N_chains = 4 targets projection standard error ≤ 0.05; ESS_min pins the a-priori sample floor. These were frozen before any run.
 
-## 8 · What we actually found (the honest part)
+## 8 · What I actually found (the honest part)
 
 Two GPU runs, two seeds each:
 
@@ -122,7 +122,7 @@ Two GPU runs, two seeds each:
 
 **The durable finding is about measurement, not acceleration.** A relative ratio cancels systematic bias but not variance: at L_traj = 400 with n = 2 seeds, the worst-layer-max τ ratio is noise-dominated, so per-seed gate passes can't be read as effects. An earlier draft that claimed a "reproducible τ-route mixing improvement" was caught and retracted by a two-round adversarial-verification pass — and that discipline is the point.
 
-**Scope (what this is / isn't).** ✅ The joint apparatus runs end-to-end; ✅ quality is preserved; ✅ the calibration failure was a measurement artifact, now fixed. ❌ No steering benefit was demonstrated at any λ; ❌ this does not validate the thermodynamic-trainability theorem (HTDML only applies the Q ruler as a guard — the wire is one-way); ❌ no hardware-energy claim; ❌ and it is not proof the steering is ineffective — a sub-2.5× effect would be invisible at this sample size. The honest next step is a reliability run (control-variance model, longer trajectories, n > 2), not another effect run.
+**Scope (what this is / isn't).** ✅ The joint apparatus runs end-to-end; ✅ quality is preserved; ✅ the calibration failure was a measurement artifact, now fixed. ❌ No steering benefit was demonstrated at any λ; ❌ this does not validate the thermodynamic-trainability result (HTDML only applies the Q ruler as a guard — the wire is one-way); ❌ no hardware-energy claim; ❌ and it is not proof the steering is ineffective — a sub-2.5× effect would be invisible at this sample size. The honest next step is a reliability run (control-variance model, longer trajectories, n > 2), not another effect run.
 
 ## 9 · Reproducibility & links
 

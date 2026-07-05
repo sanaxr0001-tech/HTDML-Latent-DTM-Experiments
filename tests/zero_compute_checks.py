@@ -16,7 +16,7 @@ Groups (12):
   8. L_compat invariants — (NEW) no-backprop-into-DTM; no-grad-through-b_t; deterministic MF.
   9. Seed disjointness — diag key independent of dtm.key; two seeds use disjoint keys.
   10. Numerical regression — τ=0.5 on IID series; determinism.
-  11. Measure-only / no-tag — companion makes NO wiki edits / no claim-status tags.
+  11. Measure-only / no-tag — companion makes NO external edits / no claim-status tags.
   12. 6-token reachability — (NEW) all 6 tokens reachable from driver's PURE route_seed/route_run.
 
 Calibration-frozen constants (L_traj, N_chains, N_R, C, ESS_min) are TBD until Task 12.  The
@@ -1081,18 +1081,18 @@ def test_g10c_tau_int_constant_series_is_0_5():
 # GROUP 11 — MEASURE-ONLY / NO-TAG
 # ===========================================================================
 
-def test_g11_no_wiki_edits_no_claim_status_tags():
-    """The companion makes NO wiki edits / no claim-status tags.
-    The 6 outcome tokens are companion-local (never wiki tags).
+def test_g11_no_external_edits_no_claim_status_tags():
+    """The companion makes NO external edits / no claim-status tags.
+    The 6 outcome tokens are companion-local (never external claim-status tags).
 
     Assert: the TOKENS list in driver.py does NOT include any external claim-status tags.
     Assert: the companion's src/ tree carries no absolute personal/studio paths (portability)."""
-    # (1) TOKENS are companion-local (not wiki claim-status tags).
-    wiki_tags = {"solid", "conjectured", "proven-here", "validated"}
+    # (1) TOKENS are companion-local (not external claim-status tags).
+    claim_status_tags = {"solid", "conjectured", "proven-here", "validated"}
     companion_tokens = set(D.TOKENS)
-    overlap = companion_tokens & wiki_tags
+    overlap = companion_tokens & claim_status_tags
     assert len(overlap) == 0, (
-        f"companion TOKENS overlap with wiki claim-status tags: {overlap}")
+        f"companion TOKENS overlap with external claim-status tags: {overlap}")
 
     # (2) All 6 tokens are companion-local vocabulary.
     expected_tokens = {

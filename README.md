@@ -86,7 +86,7 @@ To ask whether steering preserves the finite-budget mixing margin, each arm is m
 
 That mixing-time denominator is a half-Sokal estimator on the retained Y-process, screened by 16 fixed Rademacher sketches (worst-of — the least-mixed direction).
 
-Crucially, Q is used **only as a relative ruler** (joint ÷ control); the systematic half-Sokal bias cancels in the ratio. It is never used to validate the wiki's frozen Q_op ≈ Q_struct^⊥ relation.
+Crucially, Q is used **only as a relative ruler** (joint ÷ control); the systematic half-Sokal bias cancels in the ratio. It is never used to validate the frozen Q_op ≈ Q_struct^⊥ relation.
 
 ## 6 · The reject gate + the 6-token router
 

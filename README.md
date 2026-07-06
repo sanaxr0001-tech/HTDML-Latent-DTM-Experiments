@@ -127,7 +127,7 @@ Two GPU runs, two seeds each:
 ## 9 · Reproducibility & links
 
 - **W&B project:** [wandb.ai/sana-xr0001-personal/Htdml](https://wandb.ai/sana-xr0001-personal/Htdml) (runs upload pending).
-- **Parent result:** the thermodynamic-trainability Q predictor — conditional factorization [solid], operational claim [conjectured]. HTDML is its downstream application companion.
+- **Related result:** the thermodynamic-trainability Q predictor — conditional factorization [solid], operational claim [conjectured]. HTDML is its downstream application companion.
 - **Source paper:** Jelinčič et al., *Denoising Thermodynamic Models*, [arXiv:2510.23972](https://arxiv.org/abs/2510.23972).
 
 This was a MEASURE-ONLY companion — the value is a clean, guarded apparatus for the DTM's open problem plus an honest, reusable lesson about ratio-estimator variance.
